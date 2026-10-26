@@ -433,3 +433,64 @@ def test_healthcare_service_mapper_serializes_telecom():
             "value": "clinic@example.com",
         },
     ]
+
+
+
+
+def test_maps_description_to_comment():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "description": "Consultation and general medical assessment.",
+        }
+    )
+
+    assert result.comment == "Consultation and general medical assessment."
+
+
+def test_serializes_description_under_fhir_comment_key():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "description": "Consultation and general medical assessment.",
+        }
+    )
+
+    assert result.to_dict()["comment"] == (
+        "Consultation and general medical assessment."
+    )
+
+
+def test_omits_comment_when_description_is_missing():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+        }
+    )
+
+    assert result.comment is None
+    assert "comment" not in result.to_dict()
+
+
+def test_omits_comment_when_description_is_empty():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "description": "",
+        }
+    )
+
+    assert result.comment is None
+    assert "comment" not in result.to_dict()
