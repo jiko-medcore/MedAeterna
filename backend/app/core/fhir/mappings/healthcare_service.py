@@ -71,6 +71,7 @@ class HealthcareServiceMapper(
             telecom=self._to_telecom(
                 phone=value.get("phone"),
                 email=value.get("email"),
+                website=value.get("website"),
             ),
             comment=(
                 value.get("description")
