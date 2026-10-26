@@ -72,6 +72,12 @@ class HealthcareServiceMapper(
                 phone=value.get("phone"),
                 email=value.get("email"),
             ),
+            comment=(
+                value.get("description")
+                if isinstance(value.get("description"), str)
+                and value.get("description").strip()
+                else None
+            ),
         )
 
     @staticmethod
