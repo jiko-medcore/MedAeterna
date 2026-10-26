@@ -9,6 +9,8 @@ from app.core.fhir.resources.healthcare_service import (
 from app.core.fhir.datatypes.codeable_concept import (
     FHIRCodeableConcept,
 )
+from app.core.fhir.datatypes.contact_point import FHIRContactPoint
+
 
 
 class HealthcareServiceMapper(
@@ -30,6 +32,7 @@ class HealthcareServiceMapper(
         return (
             FHIRCodeableConcept(text=value),
         )
+    
 
     def to_fhir(
         self,
@@ -65,4 +68,33 @@ class HealthcareServiceMapper(
             specialty=self._to_codeable_concept(
                 value.get("specialty"),
             ),
+            telecom=self._to_telecom(
+                phone=value.get("phone"),
+                email=value.get("email"),
+            ),
         )
+
+    @staticmethod
+    def _to_telecom(
+        phone: Any,
+        email: Any,
+    ) -> tuple[FHIRContactPoint, ...]:
+        telecom = []
+
+        if isinstance(phone, str) and phone.strip():
+            telecom.append(
+                FHIRContactPoint(
+                    system="phone",
+                    value=phone,
+                )
+            )
+
+        if isinstance(email, str) and email.strip():
+            telecom.append(
+                FHIRContactPoint(
+                    system="email",
+                    value=email,
+                )
+            )
+
+        return tuple(telecom)
