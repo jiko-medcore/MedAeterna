@@ -494,3 +494,59 @@ def test_omits_comment_when_description_is_empty():
 
     assert result.comment is None
     assert "comment" not in result.to_dict()
+
+
+def test_healthcare_service_mapper_maps_appointment_required_true():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "appointment_required": True,
+        }
+    )
+
+    assert result.appointment_required is True
+
+
+def test_healthcare_service_mapper_preserves_appointment_required_false():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "appointment_required": False,
+        }
+    )
+
+    assert result.appointment_required is False
+
+
+def test_healthcare_service_mapper_serializes_appointment_required():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "appointment_required": True,
+        }
+    )
+
+    assert result.to_dict()["appointmentRequired"] is True
+
+
+def test_healthcare_service_mapper_omits_missing_appointment_required():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+        }
+    )
+
+    assert result.appointment_required is None
+    assert "appointmentRequired" not in result.to_dict()
