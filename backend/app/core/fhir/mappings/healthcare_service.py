@@ -13,6 +13,9 @@ from app.core.fhir.datatypes.contact_point import FHIRContactPoint
 
 
 
+
+
+
 class HealthcareServiceMapper(
     FHIRMapper[dict[str, Any], FHIRHealthcareService]
 ):
@@ -34,6 +37,44 @@ class HealthcareServiceMapper(
         )
     
 
+
+    
+    @staticmethod
+    def _to_telecom(
+        phone: Any,
+        email: Any,
+        website: Any,
+    ) -> tuple[FHIRContactPoint, ...]:
+        telecom = []
+
+        if isinstance(phone, str) and phone.strip():
+            telecom.append(
+                FHIRContactPoint(
+                    system="phone",
+                    value=phone,
+                )
+            )
+
+        if isinstance(email, str) and email.strip():
+            telecom.append(
+                FHIRContactPoint(
+                    system="email",
+                    value=email,
+                )
+            )
+
+        if isinstance(website, str) and website.strip():
+            telecom.append(
+                FHIRContactPoint(
+                    system="url",
+                    value=website,
+                )
+            )
+        return tuple(telecom)
+
+
+
+    
     def to_fhir(
         self,
         value: dict[str, Any],
@@ -81,28 +122,3 @@ class HealthcareServiceMapper(
             ),
             appointment_required=value.get("appointment_required"),
         )
-
-    @staticmethod
-    def _to_telecom(
-        phone: Any,
-        email: Any,
-    ) -> tuple[FHIRContactPoint, ...]:
-        telecom = []
-
-        if isinstance(phone, str) and phone.strip():
-            telecom.append(
-                FHIRContactPoint(
-                    system="phone",
-                    value=phone,
-                )
-            )
-
-        if isinstance(email, str) and email.strip():
-            telecom.append(
-                FHIRContactPoint(
-                    system="email",
-                    value=email,
-                )
-            )
-
-        return tuple(telecom)
