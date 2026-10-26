@@ -78,6 +78,7 @@ class HealthcareServiceMapper(
                 and value.get("description").strip()
                 else None
             ),
+            appointment_required=value.get("appointment_required"),
         )
 
     @staticmethod
