@@ -218,7 +218,7 @@ def test_healthcare_service_mapper_omits_missing_organization_reference():
 
 
 # =========================================================================
-#  MAPPER ORGANIZATION CLASSIFICAION TESTS
+#  MAPPER ORGANIZATION SERVICE TYPE TESTS
 # =========================================================================
 def test_healthcare_service_mapper_maps_category():
     mapper = HealthcareServiceMapper()
