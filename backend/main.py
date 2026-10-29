@@ -25,7 +25,7 @@ from app.modules.appointments.router import router as appointments_router
 
 
 # ===== Initialize FastAPI Application =====
-app = FastAPI(title="MedCore API", version="1.0.0", description="API for Electronic Medical History System")
+app = FastAPI(title="MedAeterna API", version="1.0.0", description="API for Electronic Medical History System")
 
 
 # # ===== CORS Middleware Configuration =====
