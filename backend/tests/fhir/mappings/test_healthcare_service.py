@@ -12,8 +12,12 @@ from app.core.fhir.mappings.healthcare_service import (
 from app.core.fhir.resources.healthcare_service import (
     FHIRHealthcareService,
 )
+from app.core.fhir.datatypes.contact_point import FHIRContactPoint
 
 
+# =========================================================================
+#  MAPPER CONTRACT TESTS
+# =========================================================================
 def test_healthcare_service_mapper_implements_fhir_mapper_contract():
     mapper: FHIRMapper[
         dict,
@@ -44,6 +48,9 @@ def test_healthcare_service_mapper_rejects_list_input():
         mapper.to_fhir([])
 
 
+# =========================================================================
+#  MAPPER SERVICE ID AND NAME TESTS
+# =========================================================================
 def test_healthcare_service_mapper_returns_fhir_healthcare_service():
     mapper = HealthcareServiceMapper()
 
@@ -137,6 +144,9 @@ def test_healthcare_service_mapper_serializes_id_name_and_active():
     }
 
 
+# =========================================================================
+#  MAPPER ORGANIZATION REFERENCE TESTS
+# =========================================================================
 def test_healthcare_service_mapper_maps_organization_reference():
     mapper = HealthcareServiceMapper()
 
@@ -207,6 +217,9 @@ def test_healthcare_service_mapper_omits_missing_organization_reference():
     assert "providedBy" not in result.to_dict()
 
 
+# =========================================================================
+#  MAPPER ORGANIZATION SERVICE TYPE TESTS
+# =========================================================================
 def test_healthcare_service_mapper_maps_category():
     mapper = HealthcareServiceMapper()
 
@@ -317,3 +330,316 @@ def test_healthcare_service_mapper_omits_empty_classification_strings():
     assert "category" not in resource
     assert "type" not in resource
     assert "specialty" not in resource
+
+
+# =========================================================================
+#  MAPPER TELECOM TESTS
+# =========================================================================
+def test_healthcare_service_mapper_maps_phone():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "phone": "+2348012345678",
+        }
+    )
+
+    assert result.telecom == (
+        FHIRContactPoint(
+            system="phone",
+            value="+2348012345678",
+        ),
+    )
+
+
+def test_healthcare_service_mapper_maps_email():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "email": "clinic@example.com",
+        }
+    )
+
+    assert result.telecom == (
+        FHIRContactPoint(
+            system="email",
+            value="clinic@example.com",
+        ),
+    )
+
+
+
+def test_healthcare_service_mapper_maps_phone_and_email():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "phone": "+2348012345678",
+            "email": "clinic@example.com",
+        }
+    )
+
+    assert result.telecom == (
+        FHIRContactPoint(
+            system="phone",
+            value="+2348012345678",
+        ),
+        FHIRContactPoint(
+            system="email",
+            value="clinic@example.com",
+        ),
+    )
+
+
+
+def test_healthcare_service_mapper_omits_missing_contacts():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "Outpatient Services",
+        }
+    )
+
+    assert result.telecom == ()
+    assert "telecom" not in result.to_dict()
+
+
+def test_healthcare_service_mapper_omits_empty_contacts():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "phone": "",
+            "email": "",
+        }
+    )
+
+    assert result.telecom == ()
+    assert "telecom" not in result.to_dict()
+
+
+
+def test_healthcare_service_mapper_serializes_telecom():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "phone": "+2348012345678",
+            "email": "clinic@example.com",
+        }
+    )
+
+    assert result.to_dict()["telecom"] == [
+        {
+            "system": "phone",
+            "value": "+2348012345678",
+        },
+        {
+            "system": "email",
+            "value": "clinic@example.com",
+        },
+    ]
+
+
+
+# =========================================================================
+#  MAPPER DESCRIPTION TESTS
+# =========================================================================
+def test_maps_description_to_comment():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "description": "Consultation and general medical assessment.",
+        }
+    )
+
+    assert result.comment == "Consultation and general medical assessment."
+
+
+def test_serializes_description_under_fhir_comment_key():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "description": "Consultation and general medical assessment.",
+        }
+    )
+
+    assert result.to_dict()["comment"] == (
+        "Consultation and general medical assessment."
+    )
+
+
+def test_omits_comment_when_description_is_missing():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+        }
+    )
+
+    assert result.comment is None
+    assert "comment" not in result.to_dict()
+
+
+def test_omits_comment_when_description_is_empty():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "description": "",
+        }
+    )
+
+    assert result.comment is None
+    assert "comment" not in result.to_dict()
+
+
+
+# =========================================================================
+#  MAPPER APPOINTMENT REQUIRED TESTS
+# =========================================================================
+def test_healthcare_service_mapper_maps_appointment_required_true():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "appointment_required": True,
+        }
+    )
+
+    assert result.appointment_required is True
+
+
+def test_healthcare_service_mapper_preserves_appointment_required_false():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "appointment_required": False,
+        }
+    )
+
+    assert result.appointment_required is False
+
+
+def test_healthcare_service_mapper_serializes_appointment_required():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "appointment_required": True,
+        }
+    )
+
+    assert result.to_dict()["appointmentRequired"] is True
+
+
+def test_healthcare_service_mapper_omits_missing_appointment_required():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+        }
+    )
+
+    assert result.appointment_required is None
+    assert "appointmentRequired" not in result.to_dict()
+
+
+# =========================================================================
+#  MAPPER WEBSITE TO TELECOM TESTS
+# =========================================================================
+def test_healthcare_service_mapper_maps_website_to_telecom():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "website": "https://clinic.example.com",
+        }
+    )
+
+    assert len(result.telecom) == 1
+    assert result.telecom[0].system == "url"
+    assert result.telecom[0].value == "https://clinic.example.com"
+
+
+def test_healthcare_service_mapper_omits_missing_website():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+        }
+    )
+
+    assert result.telecom == ()
+
+
+def test_healthcare_service_mapper_omits_blank_website():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "website": "   ",
+        }
+    )
+
+    assert result.telecom == ()
+
+
+def test_healthcare_service_mapper_maps_phone_email_and_website():
+    mapper = HealthcareServiceMapper()
+
+    result = mapper.to_fhir(
+        {
+            "id": "service-123",
+            "name": "General Consultation",
+            "phone": "+2348012345678",
+            "email": "clinic@example.com",
+            "website": "https://clinic.example.com",
+        }
+    )
+
+    assert len(result.telecom) == 3
+
+    telecom_by_system = {
+        contact.system: contact.value
+        for contact in result.telecom
+    }
+
+    assert telecom_by_system == {
+        "phone": "+2348012345678",
+        "email": "clinic@example.com",
+        "url": "https://clinic.example.com",
+    }
