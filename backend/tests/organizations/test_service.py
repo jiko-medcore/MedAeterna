@@ -15,6 +15,63 @@ from tests.factories.constants import (
 )
 
 
+def _mock_query(mocker, data=None):
+    query = mocker.Mock()
+    for method_name in ("select", "eq", "is_", "in_", "maybe_single", "single", "insert", "update"):
+        getattr(query, method_name).return_value = query
+    query.execute.return_value = mocker.Mock(data=data)
+    return query
+
+
+def _mock_accept_invitation_dependencies(
+    mocker,
+    *,
+    invite,
+    organization_id,
+    user_id=str(USER_ID),
+    invite_role=None,
+    issuer_roles=None,
+    signup_user=True,
+):
+    invitation_query = _mock_query(mocker, invite)
+    update_query = _mock_query(mocker, [{"id": invite.get("id"), "status": "accepted"}])
+    membership_query = _mock_query(mocker, [{"role_id": "issuer-role"}])
+    issuer_role_query = _mock_query(mocker, issuer_roles or [{
+        "id": "issuer-role",
+        "name": "org_admin",
+        "role_type": "organization",
+        "organization_id": str(organization_id),
+        "is_active": True,
+    }])
+    target_role_query = _mock_query(mocker, (None if invite_role is False else {
+        "id": "target-role",
+        "name": "practitioner",
+        "role_type": "organization",
+        "organization_id": str(organization_id),
+        "is_active": True,
+    } if invite_role is None else invite_role))
+    supabase_admin = mocker.patch.object(service, "supabase_admin")
+    table_queues = {
+        "invitations": [invitation_query, update_query],
+        "user_roles": [membership_query],
+        "roles": [issuer_role_query, target_role_query],
+    }
+    supabase_admin.table.side_effect = lambda name: table_queues[name].pop(0)
+
+    auth_result = mocker.Mock()
+    auth_result.user = SimpleNamespace(id=user_id) if signup_user else None
+    auth = mocker.Mock()
+    auth.sign_up.return_value = auth_result
+    supabase = mocker.patch.object(service, "supabase")
+    supabase.auth = auth
+    assigned = mocker.patch.object(
+        service,
+        "assign_organization_role",
+        return_value={"status": "active"},
+    )
+    return auth, assigned, supabase_admin
+
+
 # ============================================================
 # CREATE ORGANIZATION SERVICE
 # ============================================================
@@ -135,6 +192,10 @@ def test_create_organization_success(
         service,
         "emit_event",
     )
+    assign_onboarding_role = mocker.patch.object(
+        service,
+        "assign_onboarding_role",
+    )
 
     # ---------------------------------
     # Execute
@@ -209,11 +270,13 @@ def test_create_organization_success(
     # ---------------------------------
     # User-role assignment assertions
     # ---------------------------------
-    user_role_query.insert.assert_called_once_with({
-        "user_id": admin_id,
-        "role_id": "role-admin",
-        "organization_id": organization_data["id"],
-    })
+    assign_onboarding_role.assert_called_once_with(
+        target_user_id=admin_id,
+        role_name="org_admin",
+        organization_id=organization_data["id"],
+        actor_id=admin_id,
+        reason="Initial organization administrator provisioned at registration",
+    )
 
     # ---------------------------------
     # Event assertions
@@ -510,81 +573,32 @@ def test_assign_user_role_success(
         org_id=str(organization_data["id"]),
     )
 
-    # ---------------------------------
-    # Role lookup
-    # ---------------------------------
-    role_response = mocker.Mock()
-    role_response.data = {
-        "id": "role-practitioner"
-    }
-
-    role_query = mocker.Mock()
-    role_query.select.return_value = role_query
-    role_query.eq.return_value = role_query
-    role_query.single.return_value = role_query
-    role_query.execute.return_value = role_response
-
-    # ---------------------------------
-    # User-role mapping
-    # ---------------------------------
-    mapping = {
-        "user_id": USER_ID,
-        "role_id": "role-practitioner",
-        "organization_id": organization_data["id"],
-    }
-
-    result_response = mocker.Mock()
-    result_response.data = [mapping]
-
-    user_role_query = mocker.Mock()
-    user_role_query.upsert.return_value = user_role_query
-    user_role_query.execute.return_value = result_response
-
-    # ---------------------------------
-    # Supabase
-    # ---------------------------------
-    supabase = mocker.patch.object(
+    result = {"status": "active", "user_id": str(USER_ID)}
+    assign = mocker.patch.object(
         service,
-        "supabase",
+        "assign_organization_role",
+        return_value=result,
     )
-
-    def table_side_effect(table_name):
-        if table_name == "roles":
-            return role_query
-
-        if table_name == "user_roles":
-            return user_role_query
-
-        raise AssertionError(
-            f"Unexpected table: {table_name}"
-        )
-
-    supabase.table.side_effect = table_side_effect
-
-    # ---------------------------------
-    # Execute
-    # ---------------------------------
-    result = service.assign_user_role(role_data)
-
-    assert result == mapping
-
-    role_query.select.assert_called_once_with("id")
-
-    role_query.eq.assert_any_call(
-        "name",
-        "practitioner",
-    )
-
-    role_query.eq.assert_any_call(
-        "organization_id",
-        str(organization_data["id"]),
-    )
-
-    user_role_query.upsert.assert_called_once_with({
-        "user_id": USER_ID,
-        "role_id": "role-practitioner",
+    actor_roles = [{
+        "name": "org_admin",
+        "role_type": "organization",
         "organization_id": str(organization_data["id"]),
-    })
+        "category": "organization_administrator",
+    }]
+
+    assert service.assign_user_role(
+        role_data,
+        actor_id="admin-user",
+        actor_roles=actor_roles,
+    ) == result
+    assign.assert_called_once_with(
+        actor_id="admin-user",
+        actor_roles=actor_roles,
+        target_user_id=str(USER_ID),
+        role_name="practitioner",
+        organization_id=str(organization_data["id"]),
+        reason=None,
+    )
 
 
 def test_assign_user_role_raises_when_role_not_found(
@@ -597,27 +611,18 @@ def test_assign_user_role_raises_when_role_not_found(
         org_id=str(organization_data["id"]),
     )
 
-    role_response = mocker.Mock()
-    role_response.data = None
-
-    role_query = mocker.Mock()
-    role_query.select.return_value = role_query
-    role_query.eq.return_value = role_query
-    role_query.single.return_value = role_query
-    role_query.execute.return_value = role_response
-
-    supabase = mocker.patch.object(
+    assign = mocker.patch.object(
         service,
-        "supabase",
+        "assign_organization_role",
+        side_effect=service.HTTPException(status_code=404, detail="Role not found"),
     )
 
-    supabase.table.return_value = role_query
-
     with pytest.raises(
-        Exception,
+        service.HTTPException,
         match="Role not found",
     ):
-        service.assign_user_role(role_data)
+        service.assign_user_role(role_data, actor_id="admin", actor_roles=[])
+    assign.assert_called_once()
 
 
 def test_assign_user_role_raises_when_assignment_fails(
@@ -630,47 +635,18 @@ def test_assign_user_role_raises_when_assignment_fails(
         org_id=str(organization_data["id"]),
     )
 
-    role_response = mocker.Mock()
-    role_response.data = {
-        "id": "role-practitioner"
-    }
-
-    role_query = mocker.Mock()
-    role_query.select.return_value = role_query
-    role_query.eq.return_value = role_query
-    role_query.single.return_value = role_query
-    role_query.execute.return_value = role_response
-
-    result_response = mocker.Mock()
-    result_response.data = None
-
-    user_role_query = mocker.Mock()
-    user_role_query.upsert.return_value = user_role_query
-    user_role_query.execute.return_value = result_response
-
-    supabase = mocker.patch.object(
+    assign = mocker.patch.object(
         service,
-        "supabase",
+        "assign_organization_role",
+        side_effect=RuntimeError("Database write failed"),
     )
 
-    def table_side_effect(table_name):
-        if table_name == "roles":
-            return role_query
-
-        if table_name == "user_roles":
-            return user_role_query
-
-        raise AssertionError(
-            f"Unexpected table: {table_name}"
-        )
-
-    supabase.table.side_effect = table_side_effect
-
     with pytest.raises(
-        Exception,
-        match="Failed to assign role",
+        RuntimeError,
+        match="Database write failed",
     ):
-        service.assign_user_role(role_data)
+        service.assign_user_role(role_data, actor_id="admin", actor_roles=[])
+    assign.assert_called_once()
 
 
 # ============================================================
@@ -693,7 +669,7 @@ def test_create_invitation_success(
         "id": "invite-1",
         "email": "staff@test.com",
         "organization_id": organization_data["id"],
-        "role_name": "staff",
+        "role_name": "practitioner",
         "invited_by": USER_ID,
         "token": token,
     }
@@ -701,40 +677,58 @@ def test_create_invitation_success(
     response = mocker.Mock()
     response.data = [invitation]
 
-    query = mocker.Mock()
-    query.insert.return_value = query
-    query.execute.return_value = response
+    invitation_query = mocker.Mock()
+    invitation_query.insert.return_value = invitation_query
+    invitation_query.execute.return_value = response
 
-    supabase = mocker.patch.object(
+    role_response = mocker.Mock(data={
+        "id": "role-practitioner",
+        "name": "practitioner",
+        "role_type": "organization",
+        "organization_id": str(organization_data["id"]),
+        "is_active": True,
+    })
+    role_query = mocker.Mock()
+    role_query.select.return_value = role_query
+    role_query.eq.return_value = role_query
+    role_query.maybe_single.return_value = role_query
+    role_query.execute.return_value = role_response
+
+    supabase_admin = mocker.patch.object(
         service,
-        "supabase",
+        "supabase_admin",
     )
-
-    supabase.table.return_value = query
+    supabase_admin.table.side_effect = lambda name: (
+        role_query if name == "roles" else invitation_query
+    )
+    actor_roles = [{
+        "name": "org_admin",
+        "role_type": "organization",
+        "organization_id": str(organization_data["id"]),
+        "category": "organization_administrator",
+    }]
 
     result = service.create_invitation(
         organization_data["id"],
         "staff@test.com",
-        "staff",
+        "practitioner",
         USER_ID,
+        actor_roles=actor_roles,
+        actor_email="admin@test.com",
     )
 
     assert result == invitation
 
-    supabase.table.assert_called_once_with(
-        "invitations"
-    )
+    invitation_query.insert.assert_called_once()
 
-    query.insert.assert_called_once()
-
-    inserted_data = query.insert.call_args.args[0]
+    inserted_data = invitation_query.insert.call_args.args[0]
 
     assert inserted_data["email"] == "staff@test.com"
     assert (
         inserted_data["organization_id"]
         == organization_data["id"]
     )
-    assert inserted_data["role_name"] == "staff"
+    assert inserted_data["role_name"] == "practitioner"
     assert inserted_data["invited_by"] == USER_ID
     assert inserted_data["token"] == token
     assert "expires_at" in inserted_data
@@ -753,16 +747,35 @@ def test_create_invitation_raises_when_insert_fails(
     response = mocker.Mock()
     response.data = None
 
-    query = mocker.Mock()
-    query.insert.return_value = query
-    query.execute.return_value = response
+    invitation_query = mocker.Mock()
+    invitation_query.insert.return_value = invitation_query
+    invitation_query.execute.return_value = response
+    role_response = mocker.Mock(data={
+        "id": "role-practitioner",
+        "name": "practitioner",
+        "role_type": "organization",
+        "organization_id": str(organization_data["id"]),
+        "is_active": True,
+    })
+    role_query = mocker.Mock()
+    role_query.select.return_value = role_query
+    role_query.eq.return_value = role_query
+    role_query.maybe_single.return_value = role_query
+    role_query.execute.return_value = role_response
 
-    supabase = mocker.patch.object(
+    supabase_admin = mocker.patch.object(
         service,
-        "supabase",
+        "supabase_admin",
     )
-
-    supabase.table.return_value = query
+    supabase_admin.table.side_effect = lambda name: (
+        role_query if name == "roles" else invitation_query
+    )
+    actor_roles = [{
+        "name": "org_admin",
+        "role_type": "organization",
+        "organization_id": str(organization_data["id"]),
+        "category": "organization_administrator",
+    }]
 
     with pytest.raises(
         Exception,
@@ -771,8 +784,10 @@ def test_create_invitation_raises_when_insert_fails(
         service.create_invitation(
             organization_data["id"],
             "staff@test.com",
-            "staff",
+            "practitioner",
             USER_ID,
+            actor_roles=actor_roles,
+            actor_email="admin@test.com",
         )
 
 
@@ -786,177 +801,31 @@ def test_accept_invitation_success(
 ):
     token = "test-token"
     user_id = str(USER_ID)
-
-    payload = AcceptInviteRequest(
-        token=token,
-        password="password123",
-    )
-
+    org_id = str(organization_data["id"])
     invitation = {
         "id": "invite-1",
         "email": "staff@test.com",
-        "organization_id": str(organization_data["id"]),
-        "role_name": "staff",
-        "expires_at": (
-            datetime.now() + timedelta(days=1)
-        ).isoformat(),
+        "organization_id": org_id,
+        "role_name": "practitioner",
+        "invited_by": str(ORGANIZATION_ID),
+        "expires_at": (datetime.now() + timedelta(days=1)).isoformat(),
         "status": "pending",
     }
-
-    # ---------------------------------
-    # Invitation lookup
-    # ---------------------------------
-    invitation_response = mocker.Mock()
-    invitation_response.data = invitation
-
-    invitation_query = mocker.Mock()
-    invitation_query.select.return_value = invitation_query
-    invitation_query.eq.return_value = invitation_query
-    invitation_query.single.return_value = invitation_query
-    invitation_query.execute.return_value = invitation_response
-    invitation_query.update.return_value = invitation_query
-
-    # ---------------------------------
-    # Auth signup
-    # ---------------------------------
-    auth_response = mocker.Mock()
-    auth_response.user = SimpleNamespace(
-        id=user_id
+    auth, assigned, supabase_admin = _mock_accept_invitation_dependencies(
+        mocker, invite=invitation, organization_id=org_id, user_id=user_id
     )
 
-    auth = mocker.Mock()
-    auth.sign_up.return_value = auth_response
-
-    # ---------------------------------
-    # Role lookup
-    # ---------------------------------
-    role_response = mocker.Mock()
-    role_response.data = {
-        "id": "role-staff"
-    }
-
-    role_query = mocker.Mock()
-    role_query.select.return_value = role_query
-    role_query.eq.return_value = role_query
-    role_query.single.return_value = role_query
-    role_query.execute.return_value = role_response
-
-    # ---------------------------------
-    # User-role assignment
-    # ---------------------------------
-    user_role_query = mocker.Mock()
-    user_role_query.insert.return_value = user_role_query
-    user_role_query.execute.return_value = mocker.Mock(
-        data=[
-            {
-                "user_id": user_id,
-                "role_id": "role-staff",
-                "organization_id": str(organization_data["id"]),
-            }
-        ]
+    result = service.accept_invitation(
+        AcceptInviteRequest(token=token, password="password123")
     )
 
-    # ---------------------------------
-    # Invitation update
-    # ---------------------------------
-    invitation_update_query = mocker.Mock()
-    invitation_update_query.update.return_value = (
-        invitation_update_query
-    )
-    invitation_update_query.eq.return_value = (
-        invitation_update_query
-    )
-    invitation_update_query.execute.return_value = mocker.Mock(
-        data=[
-            {
-                "id": "invite-1",
-                "status": "accepted",
-            }
-        ]
-    )
-
-    # ---------------------------------
-    # Supabase
-    # ---------------------------------
-    supabase = mocker.patch.object(
-        service,
-        "supabase",
-    )
-
-    supabase.auth = auth
-
-    def table_side_effect(table_name):
-        if table_name == "invitations":
-            return invitation_query
-
-        if table_name == "roles":
-            return role_query
-
-        if table_name == "user_roles":
-            return user_role_query
-
-        raise AssertionError(
-            f"Unexpected table: {table_name}"
-        )
-
-    supabase.table.side_effect = table_side_effect
-
-    # ---------------------------------
-    # Execute
-    # ---------------------------------
-    result = service.accept_invitation(payload)
-
-    assert result == {
-        "message": "Account created successfully",
-        "user_id": user_id,
-    }
-
-    # ---------------------------------
-    # Invitation lookup
-    # ---------------------------------
-    invitation_query.select.assert_called_once_with("*")
-
-    invitation_query.eq.assert_any_call(
-        "token",
-        token,
-    )
-
-    invitation_query.eq.assert_any_call(
-        "status",
-        "pending",
-    )
-
-    # ---------------------------------
-    # Auth signup
-    # ---------------------------------
+    assert result == {"message": "Account created successfully", "user_id": user_id}
     auth.sign_up.assert_called_once_with({
         "email": "staff@test.com",
         "password": "password123",
     })
-
-    # ---------------------------------
-    # Role lookup
-    # ---------------------------------
-    role_query.select.assert_called_once_with("id")
-
-    role_query.eq.assert_any_call(
-        "name",
-        "staff",
-    )
-
-    role_query.eq.assert_any_call(
-        "organization_id",
-        str(organization_data["id"]),
-    )
-
-    # ---------------------------------
-    # User-role assignment
-    # ---------------------------------
-    user_role_query.insert.assert_called_once_with({
-        "user_id": user_id,
-        "role_id": "role-staff",
-        "organization_id": str(organization_data["id"]),
-    })
+    assigned.assert_called_once()
+    supabase_admin.rpc.assert_not_called()
 
 
 def test_accept_invitation_raises_when_invitation_is_invalid(
@@ -967,26 +836,11 @@ def test_accept_invitation_raises_when_invitation_is_invalid(
         password="password123",
     )
 
-    invitation_response = mocker.Mock()
-    invitation_response.data = None
+    invitation_query = _mock_query(mocker, None)
+    supabase_admin = mocker.patch.object(service, "supabase_admin")
+    supabase_admin.table.return_value = invitation_query
 
-    invitation_query = mocker.Mock()
-    invitation_query.select.return_value = invitation_query
-    invitation_query.eq.return_value = invitation_query
-    invitation_query.single.return_value = invitation_query
-    invitation_query.execute.return_value = invitation_response
-
-    supabase = mocker.patch.object(
-        service,
-        "supabase",
-    )
-
-    supabase.table.return_value = invitation_query
-
-    with pytest.raises(
-        Exception,
-        match="Invalid or expired invitation",
-    ):
+    with pytest.raises(Exception, match="Invalid or expired invitation"):
         service.accept_invitation(payload)
 
 
@@ -1003,33 +857,15 @@ def test_accept_invitation_raises_when_invitation_expired(
         "id": "invite-1",
         "email": "staff@test.com",
         "organization_id": organization_data["id"],
-        "role_name": "staff",
-        "expires_at": (
-            datetime.now() - timedelta(days=1)
-        ).isoformat(),
+        "role_name": "practitioner",
+        "expires_at": (datetime.now() - timedelta(days=1)).isoformat(),
         "status": "pending",
     }
+    invitation_query = _mock_query(mocker, invitation)
+    supabase_admin = mocker.patch.object(service, "supabase_admin")
+    supabase_admin.table.return_value = invitation_query
 
-    invitation_response = mocker.Mock()
-    invitation_response.data = invitation
-
-    invitation_query = mocker.Mock()
-    invitation_query.select.return_value = invitation_query
-    invitation_query.eq.return_value = invitation_query
-    invitation_query.single.return_value = invitation_query
-    invitation_query.execute.return_value = invitation_response
-
-    supabase = mocker.patch.object(
-        service,
-        "supabase",
-    )
-
-    supabase.table.return_value = invitation_query
-
-    with pytest.raises(
-        Exception,
-        match="Invitation expired",
-    ):
+    with pytest.raises(service.HTTPException, match="Invitation expired"):
         service.accept_invitation(payload)
 
 
@@ -1046,35 +882,20 @@ def test_accept_invitation_raises_when_signup_fails(
         "id": "invite-1",
         "email": "staff@test.com",
         "organization_id": organization_data["id"],
-        "role_name": "staff",
+        "role_name": "practitioner",
+        "invited_by": str(ORGANIZATION_ID),
         "expires_at": (
             datetime.now() + timedelta(days=1)
         ).isoformat(),
         "status": "pending",
     }
 
-    invitation_response = mocker.Mock()
-    invitation_response.data = invitation
-
-    invitation_query = mocker.Mock()
-    invitation_query.select.return_value = invitation_query
-    invitation_query.eq.return_value = invitation_query
-    invitation_query.single.return_value = invitation_query
-    invitation_query.execute.return_value = invitation_response
-
-    auth_response = mocker.Mock()
-    auth_response.user = None
-
-    auth = mocker.Mock()
-    auth.sign_up.return_value = auth_response
-
-    supabase = mocker.patch.object(
-        service,
-        "supabase",
+    _, _, _ = _mock_accept_invitation_dependencies(
+        mocker,
+        invite=invitation,
+        organization_id=str(organization_data["id"]),
+        signup_user=False,
     )
-
-    supabase.table.return_value = invitation_query
-    supabase.auth = auth
 
     with pytest.raises(
         Exception,
@@ -1096,61 +917,23 @@ def test_accept_invitation_raises_when_role_not_found(
         "id": "invite-1",
         "email": "staff@test.com",
         "organization_id": organization_data["id"],
-        "role_name": "staff",
+        "role_name": "practitioner",
+        "invited_by": str(ORGANIZATION_ID),
         "expires_at": (
             datetime.now() + timedelta(days=1)
         ).isoformat(),
         "status": "pending",
     }
 
-    invitation_response = mocker.Mock()
-    invitation_response.data = invitation
-
-    invitation_query = mocker.Mock()
-    invitation_query.select.return_value = invitation_query
-    invitation_query.eq.return_value = invitation_query
-    invitation_query.single.return_value = invitation_query
-    invitation_query.execute.return_value = invitation_response
-
-    auth_response = mocker.Mock()
-    auth_response.user = SimpleNamespace(
-        id=str(USER_ID)
+    _mock_accept_invitation_dependencies(
+        mocker,
+        invite=invitation,
+        organization_id=str(organization_data["id"]),
+        invite_role=False,
     )
-
-    auth = mocker.Mock()
-    auth.sign_up.return_value = auth_response
-
-    role_response = mocker.Mock()
-    role_response.data = None
-
-    role_query = mocker.Mock()
-    role_query.select.return_value = role_query
-    role_query.eq.return_value = role_query
-    role_query.single.return_value = role_query
-    role_query.execute.return_value = role_response
-
-    supabase = mocker.patch.object(
-        service,
-        "supabase"
-    )
-
-    supabase.auth = auth
-
-    def table_side_effect(table_name):
-        if table_name == "invitations":
-            return invitation_query
-
-        if table_name == "roles":
-            return role_query
-
-        raise AssertionError(
-            f"Unexpected table: {table_name}"
-        )
-
-    supabase.table.side_effect = table_side_effect
 
     with pytest.raises(
         Exception,
-        match="Role not found",
+        match="Invited role no longer exists",
     ):
         service.accept_invitation(payload)

@@ -9,6 +9,7 @@ from app.core.security import get_current_user
 from app.modules.organizations.dependencies import (
     require_organization_access,
     require_organization_admin,
+    require_organization_admin_for_org_id,
 )
 
 from tests.factories.user import (
@@ -66,6 +67,16 @@ def authenticated_client(current_user):
     app.dependency_overrides[
         require_organization_admin
     ] = lambda: fake_org
+
+    def organization_admin_for_id(org_id):
+        if str(org_id) != str(ORGANIZATION_ID):
+            from app.modules.organizations.exceptions import OrganizationAccessDeniedError
+            raise OrganizationAccessDeniedError()
+        return fake_org
+
+    app.dependency_overrides[
+        require_organization_admin_for_org_id
+    ] = organization_admin_for_id
 
     with TestClient(app) as client:
         yield client

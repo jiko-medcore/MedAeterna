@@ -2,6 +2,7 @@ import email
 from fastapi import HTTPException
 from app.core.supabase_client import supabase
 from app.core.supabase_admin import supabase_admin
+from app.modules.auth.role_assignment_service import assign_onboarding_role
 
 
 
@@ -28,28 +29,30 @@ def signup_user(email: str, password: str):
 
     try:
         # Create patient profile
-        supabase.table("profiles").insert({
+        supabase_admin.table("profiles").insert({
             "id": user.id,
             "type": "patient"
         }).execute()
 
         # Get patient role
         role_resp = (
-            supabase
+            supabase_admin
             .table("roles")
-            .select("id")
+            .select("id, is_active")
             .eq("name", "patient")
             .eq("role_type", "system")
+            .eq("is_active", True)
             .single()
             .execute()
         )
 
-        # Assign role
-        supabase.table("user_roles").insert({
-            "user_id": user.id,
-            "role_id": role_resp.data["id"],
-            "organization_id": None
-        }).execute()
+        assign_onboarding_role(
+            target_user_id=user.id,
+            role_name="patient",
+            organization_id=None,
+            actor_id=None,
+            reason="Patient account created through public signup",
+        )
 
     except Exception as e:
         # Only rollback if session exists (real user created)
@@ -86,54 +89,41 @@ def ensure_profile_exists(user_id: str, user_email: str):
         }).execute()
 
     # ---- Check if role already assigned ----
-    role_check = (
-        supabase_admin
-        .table("user_roles")
-        .select("id")
-        .eq("user_id", user_id)
-        .is_("organization_id", None)
-        .execute()
-    )
-
-    if role_check.data:
-        return  # already onboarded (idempotent)
-
-    # ---- Get patient role ----
     role_resp = (
         supabase_admin
         .table("roles")
         .select("id")
         .eq("name", "patient")
         .eq("role_type", "system")
+        .is_("organization_id", "null")
+        .eq("is_active", True)
+        .single()
+        .execute()
+    )
+    if not role_resp.data:
+        raise HTTPException(status_code=500, detail="Patient role not configured")
+
+    role_check = (
+        supabase_admin
+        .table("user_roles")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("role_id", role_resp.data["id"])
+        .is_("organization_id", None)
+        .eq("status", "active")
         .execute()
     )
 
-    role_data = role_resp.data
-    if not isinstance(role_data, list) or not role_data:
-        raise HTTPException(
-            status_code=500,
-            detail="Patient role not configured"
-        )
+    if role_check.data:
+        return  # already onboarded (idempotent)
 
-    role_item = role_data[0]
-    if not isinstance(role_item, dict) or "id" not in role_item:
-        raise HTTPException(
-            status_code=500,
-            detail="Patient role is missing identifier"
-        )
-
-    role_id = role_item["id"]
-
-    # check Id and role of user
-    print("User ID:", user_id)
-    print("Assigning role:", role_id)
-
-    # ---- Assign role ----
-    supabase_admin.table("user_roles").insert({
-        "user_id": user_id,
-        "role_id": role_id,
-        "organization_id": None
-    }).execute()
+    assign_onboarding_role(
+        target_user_id=user_id,
+        role_name="patient",
+        organization_id=None,
+        actor_id=None,
+        reason="Patient role provisioned during account reconciliation",
+    )
 
 
 # ---- Login Service [email & password] -----

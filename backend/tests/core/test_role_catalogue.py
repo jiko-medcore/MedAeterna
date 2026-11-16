@@ -96,7 +96,10 @@ def test_system_admin_does_not_imply_org_admin():
 def test_organization_admin_dependency_allows_own_organization():
     org_id = str(uuid4())
     organization = {"id": org_id}
-    user = {"roles": [assignment("org_admin", "organization", org_id, org_id)]}
+    user = {
+        "roles": [assignment("org_admin", "organization", org_id, org_id)],
+        "organization_ids": [org_id],
+    }
 
     assert require_organization_admin(
         organization=organization,

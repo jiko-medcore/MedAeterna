@@ -24,6 +24,9 @@ from app.core.security import (
     get_current_user,
     require_permission
 )
+from app.modules.auth.role_assignment_schemas import RoleAssignmentRevocation
+from app.modules.auth.role_assignment_service import revoke_organization_role
+from app.modules.organizations.dependencies import require_organization_admin_for_org_id
 from app.modules.organizations.queries import (
     get_user_organization_id,
     get_organization,
@@ -170,15 +173,36 @@ def assign_role_to_user(
     org_id: str,
     role_data: RoleAssignment,
     current_user=Depends(get_current_user),
-    _=Depends(require_permission("manage_organization"))
+    organization=Depends(require_organization_admin_for_org_id),
 ):
     if str(role_data.org_id) != org_id:
         raise HTTPException(400, "Organization mismatch")
 
-    payload = role_data.model_dump()
-    payload["org_id"] = org_id  # enforce path param
+    payload = role_data.model_copy(update={"org_id": org_id})
+    return assign_user_role(
+        payload,
+        actor_id=current_user["id"],
+        actor_roles=current_user.get("roles", []),
+    )
 
-    return assign_user_role(payload)
+
+@router.delete("/{org_id}/assign-role")
+def revoke_role_from_user(
+    org_id: str,
+    role_data: RoleAssignmentRevocation,
+    current_user=Depends(get_current_user),
+    organization=Depends(require_organization_admin_for_org_id),
+):
+    if role_data.organization_id and str(role_data.organization_id) != org_id:
+        raise HTTPException(400, "Organization mismatch")
+    return revoke_organization_role(
+        actor_id=current_user["id"],
+        actor_roles=current_user.get("roles", []),
+        target_user_id=str(role_data.user_id),
+        role_name=role_data.role_name,
+        organization_id=org_id,
+        reason=role_data.reason,
+    )
 
 
 # ------------------------------------------------
@@ -189,22 +213,17 @@ def invite_user(
     org_id: str,
     invite_data: OnboardingInvite,
     current_user=Depends(get_current_user),
-    _=Depends(require_permission("manage_organization"))
+    organization=Depends(require_organization_admin_for_org_id),
 ):
-    
-    current_org = get_user_organization_id(current_user["id"])
-
-    if current_org != org_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Cannot invite users to another organization."
-        )
-    
+    if invite_data.org_id != org_id:
+        raise HTTPException(400, "Organization mismatch")
     return create_invitation(
         org_id,
         invite_data.email,
         invite_data.role_name,
-        current_user["id"]
+        current_user["id"],
+        actor_roles=current_user.get("roles", []),
+        actor_email=current_user.get("email", ""),
     )
 
 

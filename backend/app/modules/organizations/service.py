@@ -1,5 +1,11 @@
 from app.core.supabase_client import supabase
 from app.core.supabase_admin import supabase_admin
+from app.core.role_assignment_policy import authorize_role_change
+from app.core.role_catalogue import normalize_role_assignment
+from app.modules.auth.role_assignment_service import (
+    assign_onboarding_role,
+    assign_organization_role,
+)
 from app.modules.organizations.schemas import (
     OrganizationCreate,
     OrganizationUpdate,
@@ -13,6 +19,7 @@ import uuid
 from datetime import (
     datetime, 
     timedelta,
+    timezone,
 )
 
 
@@ -80,12 +87,14 @@ def create_organization(
 
     role_id = role_resp.data["id"]
 
-    # Assign role to admin
-    supabase_admin.table("user_roles").insert({
-        "user_id": admin_id,
-        "role_id": role_id,
-        "organization_id": org_id
-    }).execute()
+    # Bootstrap the initial organization administrator through trusted onboarding.
+    assign_onboarding_role(
+        target_user_id=admin_id,
+        role_name="org_admin",
+        organization_id=org_id,
+        actor_id=admin_id,
+        reason="Initial organization administrator provisioned at registration",
+    )
 
     emit_event(
         aggregate_type="organization",
@@ -136,41 +145,20 @@ def update_organization(
 # Role Management Service
 # ----------------------------------
 def assign_user_role(
-        role_data: RoleAssignment
-        ):
-
-    # ---- Get Role ID ----
-    role_resp = (
-        supabase
-        .table("roles")
-        .select("id")
-        .eq("name", role_data.role_name)
-        .eq("organization_id", role_data.org_id)
-        .single()
-        .execute()
+    role_data: RoleAssignment | dict,
+    *,
+    actor_id: str,
+    actor_roles: list[dict],
+):
+    data = role_data.model_dump() if isinstance(role_data, RoleAssignment) else role_data
+    return assign_organization_role(
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        target_user_id=str(data["user_id"]),
+        role_name=data["role_name"],
+        organization_id=str(data["org_id"]),
+        reason=data.get("reason"),
     )
-
-    if not role_resp.data:
-        raise Exception("Role not found")
-
-    role_id= role_resp.data["id"]
-
-    # ---- Insert Mapping ----
-    result = (
-        supabase
-        .table("user_roles")
-        .upsert({
-            "user_id": role_data.user_id,
-            "role_id": role_id,
-            "organization_id": role_data.org_id
-        })
-        .execute()
-    )
-
-    if not result.data:
-        raise Exception("Failed to assign role")
-
-    return result.data[0]
 
 
 # ----------------------------------
@@ -180,13 +168,42 @@ def create_invitation(
         org_id: str, 
         email: str, 
         role_name: str, 
-        invited_by: str
+        invited_by: str,
+        actor_roles: list[dict],
+        actor_email: str,
         ):
+
+    if email.strip().casefold() == actor_email.strip().casefold():
+        raise HTTPException(status_code=403, detail="Users cannot invite themselves into a role")
+
+    role_resp = (
+        supabase_admin.table("roles")
+        .select("id, name, role_type, organization_id, is_active")
+        .eq("name", role_name.strip())
+        .eq("organization_id", org_id)
+        .maybe_single()
+        .execute()
+    )
+    role = role_resp.data
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    authorize_role_change(
+        actor_id=invited_by,
+        actor_roles=actor_roles,
+        target_user_id=f"invite:{email.strip().casefold()}",
+        role_name=role["name"],
+        role_type=role.get("role_type"),
+        organization_id=org_id,
+        role_organization_id=role.get("organization_id"),
+        role_is_active=role.get("is_active") is True,
+        action="assign",
+    )
 
     token = str(uuid.uuid4())
 
     result = (
-        supabase
+        supabase_admin
         .table("invitations")
         .insert({
             "email": email,
@@ -217,12 +234,12 @@ def accept_invitation(
 
     # ---- Find invitation ----
     invite_resp = (
-        supabase
+        supabase_admin
         .table("invitations")
         .select("*")
         .eq("token", payload.token)
         .eq("status", "pending")
-        .single()
+        .maybe_single()
         .execute()
     )
 
@@ -231,8 +248,62 @@ def accept_invitation(
 
     invite = invite_resp.data
 
-    if datetime.now() > datetime.fromisoformat(invite["expires_at"]):
-        raise Exception("Invitation expired")
+    expires_at = datetime.fromisoformat(invite["expires_at"])
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) >= expires_at:
+        raise HTTPException(status_code=400, detail="Invitation expired")
+
+    issuer_id = str(invite["invited_by"])
+    organization_id = str(invite["organization_id"])
+    membership_rows = (
+        supabase_admin.table("user_roles")
+        .select("role_id")
+        .eq("user_id", issuer_id)
+        .eq("organization_id", organization_id)
+        .eq("status", "active")
+        .execute()
+    ).data or []
+    role_ids = [row["role_id"] for row in membership_rows if row.get("role_id")]
+    if not role_ids:
+        raise HTTPException(status_code=403, detail="Invitation issuer no longer has authority")
+    issuer_roles = (
+        supabase_admin.table("roles")
+        .select("id, name, role_type, organization_id, is_active")
+        .in_("id", role_ids)
+        .execute()
+    ).data or []
+    issuer_assignments = [
+        normalize_role_assignment(
+            role_name=role["name"],
+            role_type=role.get("role_type"),
+            organization_id=organization_id,
+            role_organization_id=role.get("organization_id"),
+            role_is_active=role.get("is_active") is True,
+        )
+        for role in issuer_roles
+    ]
+    invite_role = (
+        supabase_admin.table("roles")
+        .select("id, name, role_type, organization_id, is_active")
+        .eq("name", invite["role_name"])
+        .eq("organization_id", organization_id)
+        .maybe_single()
+        .execute()
+    ).data
+    if not invite_role:
+        raise HTTPException(status_code=404, detail="Invited role no longer exists")
+    authorize_role_change(
+        actor_id=issuer_id,
+        actor_roles=issuer_assignments,
+        target_user_id=f"invite:{invite['email'].strip().casefold()}",
+        role_name=invite_role["name"],
+        role_type=invite_role.get("role_type"),
+        organization_id=organization_id,
+        role_organization_id=invite_role.get("organization_id"),
+        role_is_active=invite_role.get("is_active") is True,
+        action="assign",
+    )
 
     # ---- Create user in Supabase Auth ----
     res = supabase.auth.sign_up({
@@ -245,30 +316,17 @@ def accept_invitation(
     if not user:
         raise Exception("Signup failed")
 
-    # ---- Assign role ----
-    role_resp = (
-        supabase
-        .table("roles")
-        .select("id")
-        .eq("name", invite["role_name"])
-        .eq("organization_id", invite["organization_id"])
-        .single()
-        .execute()
+    assign_organization_role(
+        actor_id=issuer_id,
+        actor_roles=issuer_assignments,
+        target_user_id=user.id,
+        role_name=invite_role["name"],
+        organization_id=organization_id,
+        reason="Authorized organization invitation accepted",
     )
 
-    if not role_resp.data:
-        raise Exception("Role not found")
-
-    role_id = role_resp.data["id"]
-
-    supabase.table("user_roles").insert({
-        "user_id": user.id,
-        "role_id": role_id,
-        "organization_id": invite["organization_id"]
-    }).execute()
-
     # ---- Mark invitation accepted ----
-    supabase.table("invitations").update({
+    supabase_admin.table("invitations").update({
         "status": "accepted"
     }).eq("id", invite["id"]).execute()
 

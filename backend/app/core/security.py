@@ -73,6 +73,7 @@ def get_current_user(
         .table("user_roles")
         .select("organization_id, role_id")
         .eq("user_id", user.id)
+        .eq("status", "active")
         .execute()
     ).data or []
 
@@ -240,6 +241,7 @@ def require_permission(permission_name: str, org_id_param: str = "org_id"):
             """)
             .eq("user_id", user_id)
             .eq("organization_id", org_id)
+            .eq("status", "active")
             .execute()
         )
 

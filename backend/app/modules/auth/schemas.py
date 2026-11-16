@@ -7,7 +7,7 @@ from uuid import UUID
 class UserMe(BaseModel):
     id: UUID
     email: EmailStr
-    role: str
+    role: Optional[str] = None
 
 
 # ----- SignupRequest Schema -----

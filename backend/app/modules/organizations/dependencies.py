@@ -104,14 +104,29 @@ def require_organization_admin(
     # Replace with role/permission system.
     #
 
+    return _require_scoped_organization_admin(organization, current_user)
+
+
+def _require_scoped_organization_admin(organization: dict, current_user: dict):
+    organization_id = str(organization["id"])
+    if not _user_has_organization_access(current_user, UUID(organization_id)):
+        raise OrganizationAccessDeniedError()
     if not has_scoped_category(
         current_user.get("roles", []),
         ORGANIZATION_ADMINISTRATOR,
-        str(organization["id"]),
+        organization_id,
     ):
         raise OrganizationAccessDeniedError()
-
     return organization
+
+
+def require_organization_admin_for_org_id(
+    org_id: UUID,
+    current_user=Depends(get_current_user),
+):
+    """Organization-admin dependency for legacy routes using `{org_id}`."""
+    organization = get_organization(organization_id=str(org_id))
+    return _require_scoped_organization_admin(organization, current_user)
 
 
 # ---------------------------------

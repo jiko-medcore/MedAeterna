@@ -8,6 +8,7 @@ from main import app
 
 from app.core.security import get_current_user
 from app.modules.organizations import router
+from app.modules.organizations.dependencies import require_organization_admin_for_org_id
 from app.modules.organizations.exceptions import (
     OrganizationNotFoundError,
     UserOrganizationNotFoundError,
@@ -51,7 +52,7 @@ ROLE_PAYLOAD = {
 
 INVITE_PAYLOAD = {
     "email": "staff@test.com",
-    "role_name": "staff",
+    "role_name": "practitioner",
     "org_id": str(ORGANIZATION_ID),
 }
 
@@ -164,6 +165,7 @@ def test_register_organization_success(
     client,
     mocker,
 ):
+    mocker.patch.object(router, "process_events_task")
     create_organization = mocker.patch.object(
         router,
         "create_organization",
@@ -628,13 +630,11 @@ def test_assign_role_success(
     assert body["user_id"] == str(USER_ID)
     assert body["organization_id"] == str(ORGANIZATION_ID)
 
-    assign_role.assert_called_once_with(
-        {
-            "user_id": USER_ID,
-            "role_name": "practitioner",
-            "org_id": str(ORGANIZATION_ID),
-        }
-    )
+    assigned_payload = assign_role.call_args.args[0]
+    assert assigned_payload.user_id == USER_ID
+    assert assigned_payload.role_name == "practitioner"
+    assert assigned_payload.org_id == str(ORGANIZATION_ID)
+    assert assign_role.call_args.kwargs["actor_id"] == USER_ID
 
 
 def test_assign_role_organization_mismatch(
@@ -674,8 +674,10 @@ def test_assign_role_permission_denied(
     mocker,
 ):
 
-    _override_manage_organization_permission(
-        _deny_manage_organization
+    app.dependency_overrides[require_organization_admin_for_org_id] = (
+        lambda org_id: (_ for _ in ()).throw(
+            HTTPException(status_code=403, detail="Organization administrator privileges are required.")
+        )
     )
 
     assign_role = mocker.patch.object(
@@ -689,9 +691,7 @@ def test_assign_role_permission_denied(
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == (
-        "Permission denied"
-    )
+    assert "administrator" in response.json()["detail"].lower()
 
     assign_role.assert_not_called()
 
@@ -734,12 +734,6 @@ def test_invite_user_success(
         _allow_manage_organization
     )
 
-    mock_get_org_id = mocker.patch.object(
-        router,
-        "get_user_organization_id",
-        return_value=str(ORGANIZATION_ID),
-    )
-
     mock_create_invitation = mocker.patch.object(
         router,
         "create_invitation",
@@ -747,7 +741,7 @@ def test_invite_user_success(
             "id": "invite-1",
             "email": "staff@test.com",
             "organization_id": str(ORGANIZATION_ID),
-            "role_name": "staff",
+            "role_name": "practitioner",
         },
     )
 
@@ -765,15 +759,13 @@ def test_invite_user_success(
         ORGANIZATION_ID
     )
 
-    mock_get_org_id.assert_called_once_with(
-        current_user["id"]
-    )
-
     mock_create_invitation.assert_called_once_with(
         str(ORGANIZATION_ID),
         "staff@test.com",
-        "staff",
+        "practitioner",
         current_user["id"],
+        actor_roles=current_user["roles"],
+        actor_email=current_user["email"],
     )
 
 
@@ -782,16 +774,6 @@ def test_invite_user_to_another_organization(
     mocker,
 ):
 
-
-    _override_manage_organization_permission(
-        _allow_manage_organization
-    )
-
-    mocker.patch.object(
-        router,
-        "get_user_organization_id",
-        return_value=str(ORGANIZATION_ID),
-    )
 
     create_invitation = mocker.patch.object(
         router,
@@ -806,16 +788,14 @@ def test_invite_user_to_another_organization(
         f"/organizations/{other_org_id}/invite",
         json={
             "email": "staff@test.com",
-            "role_name": "staff",
+            "role_name": "practitioner",
             "org_id": other_org_id,
         },
     )
 
     assert response.status_code == 403
 
-    assert response.json()["detail"] == (
-        "Cannot invite users to another organization."
-    )
+    assert "permission" in response.json()["detail"].lower()
 
     create_invitation.assert_not_called()
 
@@ -825,8 +805,10 @@ def test_invite_user_permission_denied(
     mocker,
 ):
 
-    _override_manage_organization_permission(
-        _deny_manage_organization
+    app.dependency_overrides[require_organization_admin_for_org_id] = (
+        lambda org_id: (_ for _ in ()).throw(
+            HTTPException(status_code=403, detail="Organization administrator privileges are required.")
+        )
     )
 
     create_invitation = mocker.patch.object(
@@ -841,7 +823,7 @@ def test_invite_user_permission_denied(
 
     assert response.status_code == 403
     assert response.json()["detail"] == (
-        "Permission denied"
+        "Organization administrator privileges are required."
     )
 
     create_invitation.assert_not_called()
@@ -861,7 +843,7 @@ def test_invite_user_invalid_payload(
         f"/organizations/{ORGANIZATION_ID}/invite",
         json={
             "email": "not-an-email",
-            "role_name": "staff",
+            "role_name": "practitioner",
             "org_id": str(ORGANIZATION_ID),
         },
     )
