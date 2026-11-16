@@ -45,6 +45,15 @@ The original plan's four personas, contextual authorization model, modular-monol
 - Organization-admin checks use the requested organization's ID and require an `organization_administrator` assignment for that exact organization.
 - `is_admin` now means system administrator only. `is_org_admin` is separately exposed for the presence of any organization-admin assignment; it must not be used as a substitute for an organization-specific check.
 
+## Focused verification
+
+The focused authorization checks passed:
+
+- `python -m pytest tests/core/test_role_catalogue.py -q` — 19 passed. Covers valid category/scope mappings, inactive role definitions, ambiguous `admin`, wrong or missing scope, role-definition/assignment organization mismatch, exact organization matching, and system-admin separation from organization-admin access.
+- `python -m pytest tests/organizations/test_dependencies.py -q -p no:cacheprovider` — 9 passed. Confirms existing organization membership behavior remains intact after the admin guard change.
+
+These are unit-level authorization checks; they do not verify live Supabase grants/RLS or assignment revocation. Assignment lifecycle remains SPEC-02.
+
 ## Deferred decisions
 
 SPEC-01 does not settle assignment active/revoked status, role assignment lifecycle, who may delegate each role, dual approval, database constraints, or action-level privileges. The backend can currently check whether the referenced role definition is active, but cannot establish whether a `user_roles` assignment itself is active because the schema has no status field. Those remaining decisions are SPEC-02/03 and must be addressed before role writes or permission-matrix work is considered complete. Existing `admin` role rows should be inventoried before migration; malformed and ambiguous assignments currently remain visible as `unmapped` and must not be repaired automatically. Because this change stops treating `admin` as an organization-administrator alias, affected legacy assignments may lose organization-admin access until their data is reviewed and deliberately migrated.
