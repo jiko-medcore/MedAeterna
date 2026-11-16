@@ -115,3 +115,6 @@ desktop*
 ../frontend/windows/flutter/desktop.ini
 ../frontend/windows/runner/desktop.ini
 ../frontend/windows/runner/resources/desktop.ini
+
+# Audit and Security Plan file
+backend\MedAeterna Phase 0 — Backend Security Baseline and Remediation Plan v2.md
