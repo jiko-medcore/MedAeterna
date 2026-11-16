@@ -117,4 +117,5 @@ desktop*
 ../frontend/windows/runner/resources/desktop.ini
 
 # Audit and Security Plan file
-docs\security\MedAeterna Phase 0 — Backend Security Baseline and Remediation Plan v2.mds
+MedAeterna Phase 0 — Backend Security Baseline and Remediation Plan v2.md
+MedAeterna Phase 0 — Backend Security Baseline and Remediation Plan.md
