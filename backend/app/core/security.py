@@ -5,7 +5,14 @@ from app.core.supabase_admin import supabase_admin
 # from jose import jwt 
 # from jose.exceptions import JWTError
 from app.core.config import settings
-from app.core.rbac import has_permission
+from app.core.role_catalogue import (
+    ORGANIZATION_ADMINISTRATOR,
+    PATIENT,
+    PRACTITIONER,
+    SYSTEM_ADMINISTRATOR,
+    has_scoped_category,
+    normalize_role_assignment,
+)
 from fastapi import Depends, HTTPException
 from app.modules.practitioners.service import (
     get_practitioner_by_id
@@ -87,7 +94,7 @@ def get_current_user(
     role_lookup_rows = (
         supabase_admin
         .table("roles")
-        .select("id, name, role_type")
+        .select("id, name, role_type, organization_id, is_active")
         .in_("id", role_ids)
         .execute()
     ).data or []
@@ -112,13 +119,19 @@ def get_current_user(
         if not role_info:
             continue
 
-        roles.append({
-            "name": role_info["name"],
-            "role_type": role_info["role_type"],
-            "organization_id": assignment["organization_id"]
-        })
+        role_assignment = normalize_role_assignment(
+            role_name=role_info["name"],
+            role_type=role_info.get("role_type"),
+            organization_id=assignment.get("organization_id"),
+            role_organization_id=role_info.get("organization_id"),
+            role_is_active=role_info.get("is_active"),
+        )
+        roles.append(role_assignment)
 
-        if assignment.get("organization_id"):
+        if (
+            role_assignment["category"] in {PRACTITIONER, ORGANIZATION_ADMINISTRATOR}
+            and assignment.get("organization_id")
+        ):
             organization_ids.add(
                 assignment["organization_id"]
             )
@@ -129,48 +142,18 @@ def get_current_user(
             detail="No valid roles found for user"
         )
 
-    # -----------------------------
-    # Primary Role
-    # -----------------------------
-    system_roles = [
-        r for r in roles
-        if r["role_type"] == "system"
-    ]
-
-    if system_roles:
-        primary_role = system_roles[0]["name"]
-    else:
-        primary_role = roles[0]["name"]
-
-    # -----------------------------
-    # Derived Flags
-    # -----------------------------
-    role_names = {
-        r["name"]
-        for r in roles
-    }
-
-    is_patient = "patient" in role_names
-
-    is_practitioner = bool(
-        role_names.intersection({
-            "doctor",
-            "clinician",
-            "practitioner"
-        })
+    # Do not choose an arbitrary "primary" role. Legacy scalar role is only
+    # populated when the user has exactly one recognized role assignment.
+    legacy_role = (
+        roles[0]["name"]
+        if len(roles) == 1 and roles[0]["category"] != "unmapped"
+        else None
     )
 
-    is_admin = bool(
-        role_names.intersection({
-            "admin",
-            "org_admin"
-        })
-    )
-
-    is_super_admin = any(
-        r["name"] == "super_admin"
-        for r in roles
-    )
+    is_patient = has_scoped_category(roles, PATIENT)
+    is_practitioner = any(r["category"] == PRACTITIONER for r in roles)
+    is_org_admin = any(r["category"] == ORGANIZATION_ADMINISTRATOR for r in roles)
+    is_super_admin = has_scoped_category(roles, SYSTEM_ADMINISTRATOR)
 
     # -----------------------------
     # Return Current User
@@ -178,12 +161,13 @@ def get_current_user(
     return {
         "id": user.id,
         "email": user.email,
-        "role": primary_role,
+        "role": legacy_role,
         "roles": roles,
         "organization_ids": list(organization_ids),
         "is_patient": is_patient,
         "is_practitioner": is_practitioner,
-        "is_admin": is_admin,
+        "is_admin": is_super_admin,
+        "is_org_admin": is_org_admin,
         "is_super_admin": is_super_admin,
     }
 
@@ -191,30 +175,22 @@ def get_current_user(
 # ----- Role-Based Access Control -----
 def require_role(required_role: str) -> callable:
     """
-    Check if the current user has the required systen role.
+    Check for a recognized, global system role assignment.
 
     input: required_role (str)
     Returns: function that raises HTTPException if role is insufficient
     """
     def checker(user=Depends(get_current_user)):
-
-        roles_resp = (
-            supabase
-            .table("user_roles")
-            .select("""
-                role:roles(name, role_type)
-            """)
-            .eq("user_id", user["id"])
-            .is_("organization_id", None)
-            .execute()
+        required_name = required_role.strip().casefold()
+        has_system_role = any(
+            role.get("name", "").strip().casefold() == required_name
+            and role.get("role_type") == "system"
+            and role.get("organization_id") is None
+            and role.get("category") != "unmapped"
+            for role in user.get("roles", [])
         )
 
-        role_names = [
-            r["role"]["name"]
-            for r in roles_resp.data
-        ]
-
-        if required_role not in role_names:
+        if not has_system_role:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions"

@@ -1,6 +1,7 @@
 from uuid import UUID
 from fastapi import Depends
 from app.core.security import get_current_user
+from app.core.role_catalogue import ORGANIZATION_ADMINISTRATOR, has_scoped_category
 from .queries import get_organization
 from .exceptions import (
     OrganizationAccessDeniedError,
@@ -103,7 +104,11 @@ def require_organization_admin(
     # Replace with role/permission system.
     #
 
-    if current_user["role"] != "admin":
+    if not has_scoped_category(
+        current_user.get("roles", []),
+        ORGANIZATION_ADMINISTRATOR,
+        str(organization["id"]),
+    ):
         raise OrganizationAccessDeniedError()
 
     return organization
