@@ -73,7 +73,9 @@ CREATE TABLE IF NOT EXISTS public.role_assignment_audit (
 );
 
 ALTER TABLE public.role_assignment_audit ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.role_assignment_audit FROM PUBLIC, anon, authenticated;
+-- Remove inherited/default table privileges as well as client grants. The
+-- service role may append/read audit events but must not rewrite or erase them.
+REVOKE ALL ON public.role_assignment_audit FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT ON public.role_assignment_audit TO service_role;
 
 -- Remove every client-writable policy, including historically named permissive
