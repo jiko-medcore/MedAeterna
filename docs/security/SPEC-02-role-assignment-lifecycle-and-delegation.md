@@ -41,14 +41,19 @@ Self-revocation is permitted because it only reduces authority. The last active 
 - [x] Assignment and revocation are transactional with an append-only audit event.
 - [x] Revoked assignments are excluded from authorization and active permission lookup.
 - [x] Database client roles cannot directly create, update, or delete role assignments.
-- [ ] Apply the migration in the controlled Supabase environment and verify role privileges/RLS there.
-- [ ] Run API/database integration tests against a controlled Supabase environment, including concurrency and last-system-admin checks.
+- [x] pgTAP suite passes locally: 37 assertions covering database grants, policy structure, lifecycle transitions, audit events, scope checks, and the final-system-admin guard.
+- [x] SPEC-02 migration is applied to production project `iyueixtpmzznyffshqon`; Supabase migration history confirms it is applied.
+- [ ] Independently verify effective role privileges and RLS against production.
+- [ ] Run a two-session concurrency test for simultaneous final-system-admin revocations.
 
 ## Implementation references
 
 - `backend/app/core/role_assignment_policy.py`
 - `backend/app/modules/auth/role_assignment_service.py`
 - `backend/app/api/admin/role_assignments_router.py`
-- `backend/sql/Security/role_assignment_lifecycle.sql`
+- `backend/supabase/migrations/20261117150000_role_assignment_lifecycle.sql` (CLI migration copy)
+- `backend/supabase/tests/database/role_assignment_lifecycle.test.sql`
+- `backend/sql/Security/role_assignment_lifecycle.sql` (source mirror)
+- `backend/supabase/tests/README.md`
 
-The application/unit-test acceptance checks can run without production credentials. Database-policy and transactional guarantees require applying the migration to a controlled Supabase test project; they are not established by static inspection alone.
+The migration replay and pgTAP suite passed against the local Supabase stack. The production migration is applied and recorded in migration history. We did not run fixture tests or concurrency experiments against production; live privilege inspection and the two-session concurrency test remain open.
