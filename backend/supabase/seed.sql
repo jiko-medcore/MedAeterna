@@ -1,1 +1,0 @@
--- SPEC-02 fixtures are created transactionally inside pgTAP tests.

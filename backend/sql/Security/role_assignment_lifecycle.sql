@@ -102,8 +102,10 @@ CREATE POLICY "Trusted service manages role assignments"
     USING (true)
     WITH CHECK (true);
 
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
-    ON public.user_roles FROM PUBLIC, anon, authenticated;
+-- Clear every inherited/direct privilege first. Revoking only DML leaves
+-- legacy service_role privileges such as TRUNCATE and MAINTAIN in place.
+REVOKE ALL ON public.user_roles FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.user_roles TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_roles TO service_role;
 
 CREATE OR REPLACE FUNCTION public.change_user_role_assignment(

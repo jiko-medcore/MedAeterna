@@ -4,5 +4,6 @@
     "dart.projectSearchDirs": [
         "frontend/admin_app",
         "frontend/patient_app"
-    ]
+    ],
+    "python.terminal.useEnvFile": true
 }

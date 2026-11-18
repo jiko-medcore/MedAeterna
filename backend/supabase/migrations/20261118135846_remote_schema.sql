@@ -449,6 +449,26 @@ CREATE TABLE "public"."reminders" (
 ALTER TABLE "public"."reminders"
   ENABLE ROW LEVEL SECURITY;
 
+CREATE TABLE "public"."role_assignment_audit" (
+  "id"              uuid                     NOT NULL DEFAULT gen_random_uuid(),
+  "user_id"         uuid                     NOT NULL,
+  "role_id"         uuid                     NOT NULL,
+  "organization_id" uuid,
+  "action"          text                     NOT NULL,
+  "actor_id"        uuid,
+  "actor_type"      text                     NOT NULL,
+  "reason"          text,
+  "occurred_at"     timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT "role_assignment_audit_action_check" CHECK ((action = ANY (ARRAY['assigned'::text, 'revoked'::text]))),
+  CONSTRAINT "role_assignment_audit_actor_type_check" CHECK ((actor_type = ANY (ARRAY['user'::text, 'system'::text]))),
+  CONSTRAINT "role_assignment_audit_pkey" PRIMARY KEY (id)
+);
+
+ALTER TABLE "public"."role_assignment_audit"
+  ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE "public"."role_assignment_audit" FROM "anon", "authenticated";
+
 CREATE TABLE "public"."role_permissions" (
   "role_id"       uuid NOT NULL,
   "permission_id" uuid NOT NULL,
@@ -487,13 +507,20 @@ ALTER TABLE "public"."terminology_codes"
   ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE "public"."user_roles" (
-  "user_id"         uuid                     NOT NULL,
-  "role_id"         uuid                     NOT NULL,
-  "assigned_at"     timestamp with time zone DEFAULT now(),
-  "organization_id" uuid,
-  "id"              uuid                     NOT NULL DEFAULT gen_random_uuid(),
-  CONSTRAINT "unique_user_role_org" UNIQUE (user_id, role_id, organization_id),
-  CONSTRAINT "user_roles_pkey" PRIMARY KEY (user_id, role_id, id)
+  "user_id"           uuid                     NOT NULL,
+  "role_id"           uuid                     NOT NULL,
+  "assigned_at"       timestamp with time zone DEFAULT now(),
+  "organization_id"   uuid,
+  "id"                uuid                     NOT NULL DEFAULT gen_random_uuid(),
+  "status"            text                     NOT NULL DEFAULT 'active'::text,
+  "assigned_by"       uuid,
+  "revoked_at"        timestamp with time zone,
+  "revoked_by"        uuid,
+  "revocation_reason" text,
+  CONSTRAINT "user_roles_pkey" PRIMARY KEY (id),
+  CONSTRAINT "user_roles_revocation_state_check"
+    CHECK ((((status = 'active'::text) AND (revoked_at IS NULL) AND (revoked_by IS NULL)) OR ((status = 'revoked'::text) AND (revoked_at IS NOT NULL)))),
+  CONSTRAINT "user_roles_status_check" CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text])))
 );
 
 ALTER TABLE "public"."user_roles"
@@ -516,6 +543,142 @@ CREATE OR REPLACE FUNCTION public.can_manage_roles()
     );
 $function$;
 
+CREATE OR REPLACE FUNCTION public.change_user_role_assignment (
+  p_user_id         uuid,
+  p_role_id         uuid,
+  p_organization_id uuid,
+  p_actor_id        uuid,
+  p_actor_type      text,
+  p_action          text,
+  p_reason          text DEFAULT NULL::text
+)
+  RETURNS jsonb
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path TO 'pg_catalog', 'public'
+  AS $function$
+DECLARE
+    role_row public.roles%ROWTYPE;
+    assignment_row public.user_roles%ROWTYPE;
+    event_action text;
+    active_system_admins bigint;
+BEGIN
+    IF auth.role() <> 'service_role' THEN
+        RAISE EXCEPTION 'role assignment RPC is restricted to the trusted backend'
+            USING ERRCODE = '42501';
+    END IF;
+    IF p_actor_type NOT IN ('user', 'system') OR p_action NOT IN ('assign', 'revoke') THEN
+        RAISE EXCEPTION 'invalid role change metadata' USING ERRCODE = '22023';
+    END IF;
+
+    SELECT * INTO role_row
+    FROM public.roles
+    WHERE id = p_role_id;
+    IF NOT FOUND OR role_row.is_active IS DISTINCT FROM true THEN
+        RAISE EXCEPTION 'role is missing or inactive' USING ERRCODE = '23503';
+    END IF;
+
+    IF role_row.role_type = 'system' THEN
+        IF role_row.organization_id IS NOT NULL OR p_organization_id IS NOT NULL
+           OR role_row.name NOT IN ('patient', 'super_admin') THEN
+            RAISE EXCEPTION 'invalid system role scope' USING ERRCODE = '22023';
+        END IF;
+    ELSIF role_row.role_type = 'organization' THEN
+        IF p_organization_id IS NULL OR role_row.organization_id IS DISTINCT FROM p_organization_id THEN
+            RAISE EXCEPTION 'invalid organization role scope' USING ERRCODE = '22023';
+        END IF;
+    ELSE
+        RAISE EXCEPTION 'invalid role type' USING ERRCODE = '22023';
+    END IF;
+
+    IF p_action = 'assign' THEN
+        IF role_row.name = 'patient' AND p_actor_type <> 'system' THEN
+            RAISE EXCEPTION 'patient roles are assigned only by onboarding' USING ERRCODE = '42501';
+        END IF;
+        IF p_actor_type = 'user' AND p_actor_id IS NOT DISTINCT FROM p_user_id THEN
+            RAISE EXCEPTION 'self-assignment is forbidden' USING ERRCODE = '42501';
+        END IF;
+
+        INSERT INTO public.user_roles (
+            user_id, role_id, organization_id, assigned_at, assigned_by,
+            status, revoked_at, revoked_by, revocation_reason
+        ) VALUES (
+            p_user_id, p_role_id, p_organization_id, now(), p_actor_id,
+            'active', NULL, NULL, NULL
+        )
+        ON CONFLICT (user_id, role_id, organization_id) DO UPDATE SET
+            assigned_at = now(),
+            assigned_by = EXCLUDED.assigned_by,
+            status = 'active',
+            revoked_at = NULL,
+            revoked_by = NULL,
+            revocation_reason = NULL
+        WHERE public.user_roles.status = 'revoked'
+        RETURNING * INTO assignment_row;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'role assignment is already active' USING ERRCODE = '23505';
+        END IF;
+        event_action := 'assigned';
+    ELSE
+        IF role_row.name = 'super_admin' AND role_row.role_type = 'system' THEN
+            PERFORM pg_advisory_xact_lock(hashtextextended('medaeterna:super-admin-revocation', 0));
+            SELECT count(DISTINCT ur.user_id)
+            INTO active_system_admins
+            FROM public.user_roles ur
+            JOIN public.roles r ON r.id = ur.role_id
+            WHERE r.name = 'super_admin'
+              AND r.role_type = 'system'
+              AND r.is_active IS TRUE
+              AND ur.organization_id IS NULL
+              AND ur.status = 'active';
+            IF active_system_admins <= 1 THEN
+                RAISE EXCEPTION 'cannot revoke the final active system administrator'
+                    USING ERRCODE = '23514';
+            END IF;
+        END IF;
+
+        UPDATE public.user_roles
+        SET status = 'revoked',
+            revoked_at = now(),
+            revoked_by = p_actor_id,
+            revocation_reason = NULLIF(btrim(p_reason), '')
+        WHERE user_id = p_user_id
+          AND role_id = p_role_id
+          AND organization_id IS NOT DISTINCT FROM p_organization_id
+          AND status = 'active'
+        RETURNING * INTO assignment_row;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'active role assignment not found' USING ERRCODE = 'P0002';
+        END IF;
+        event_action := 'revoked';
+    END IF;
+
+    INSERT INTO public.role_assignment_audit (
+        user_id, role_id, organization_id, action, actor_id, actor_type, reason
+    ) VALUES (
+        p_user_id, p_role_id, p_organization_id, event_action, p_actor_id,
+        p_actor_type, NULLIF(btrim(p_reason), '')
+    );
+
+    RETURN jsonb_build_object(
+        'id', assignment_row.id,
+        'user_id', assignment_row.user_id,
+        'role_id', assignment_row.role_id,
+        'organization_id', assignment_row.organization_id,
+        'status', assignment_row.status,
+        'assigned_at', assignment_row.assigned_at,
+        'assigned_by', assignment_row.assigned_by,
+        'revoked_at', assignment_row.revoked_at,
+        'revoked_by', assignment_row.revoked_by,
+        'revocation_reason', assignment_row.revocation_reason
+    );
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION "public"."change_user_role_assignment"(uuid, uuid, uuid, uuid, text, text, text) FROM PUBLIC, "anon", "authenticated";
+
 CREATE OR REPLACE FUNCTION public.generate_patient_medical_id()
   RETURNS text
   LANGUAGE plpgsql
@@ -527,6 +690,26 @@ BEGIN
 
     RETURN 'MC-NG-P-' || LPAD(seq::TEXT, 10, '0');
 END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.get_user_permissions (
+  uid uuid
+)
+  RETURNS TABLE (
+    permission text
+  )
+  LANGUAGE sql
+  SECURITY DEFINER
+  SET search_path TO 'pg_catalog', 'public'
+  AS $function$
+    SELECT p.name
+    FROM public.user_roles ur
+    JOIN public.roles r ON r.id = ur.role_id
+    JOIN public.role_permissions rp ON rp.role_id = ur.role_id
+    JOIN public.permissions p ON p.id = rp.permission_id
+    WHERE ur.user_id = uid
+      AND ur.status = 'active'
+      AND r.is_active IS TRUE;
 $function$;
 
 CREATE OR REPLACE FUNCTION public.is_admin_user()
@@ -665,6 +848,12 @@ ALTER TABLE "public"."role_permissions"
   ADD CONSTRAINT "role_permissions_role_id_fkey" FOREIGN KEY (role_id) REFERENCES public.roles(id) ON DELETE CASCADE;
 
 ALTER TABLE "public"."user_roles"
+  ADD CONSTRAINT "user_roles_assigned_by_fkey" FOREIGN KEY (assigned_by) REFERENCES auth.users(id);
+
+ALTER TABLE "public"."user_roles"
+  ADD CONSTRAINT "user_roles_revoked_by_fkey" FOREIGN KEY (revoked_by) REFERENCES auth.users(id);
+
+ALTER TABLE "public"."user_roles"
   ADD CONSTRAINT "user_roles_role_id_fkey" FOREIGN KEY (role_id) REFERENCES public.roles(id) ON DELETE CASCADE;
 
 ALTER TABLE "public"."user_roles"
@@ -741,6 +930,8 @@ CREATE INDEX terminology_codes_system_idx1 ON public.terminology_codes USING btr
 
 CREATE INDEX terminology_codes_system_idx ON public.terminology_codes USING btree (system);
 
+CREATE UNIQUE INDEX user_roles_assignment_identity_uq ON public.user_roles USING btree (user_id, role_id, organization_id) NULLS NOT DISTINCT;
+
 CREATE TRIGGER organizations_updated_at
   BEFORE UPDATE ON public.organizations
   FOR EACH ROW
@@ -796,26 +987,11 @@ CREATE POLICY "Read-only terminology" ON "public"."terminology_codes"
   TO PUBLIC
   USING (true);
 
-CREATE POLICY "Admins manage roles" ON "public"."user_roles"
-  FOR ALL
-  TO PUBLIC
-  USING (public.can_manage_roles());
-
-CREATE POLICY "Allow insert for authenticated users" ON "public"."user_roles"
-  FOR INSERT
-  TO "authenticated"
-  WITH CHECK (true);
-
-CREATE POLICY "Allow service role full access" ON "public"."user_roles"
+CREATE POLICY "Trusted service manages role assignments" ON "public"."user_roles"
   FOR ALL
   TO "service_role"
   USING (true)
   WITH CHECK (true);
-
-CREATE POLICY "Users can only assign roles to themselves" ON "public"."user_roles"
-  FOR INSERT
-  TO "authenticated"
-  WITH CHECK ((auth.uid() = user_id));
 
 CREATE POLICY "Users read own roles" ON "public"."user_roles"
   FOR SELECT
@@ -830,6 +1006,12 @@ GRANT EXECUTE ON FUNCTION "public"."can_manage_roles"() TO "postgres";
 
 GRANT EXECUTE ON FUNCTION "public"."can_manage_roles"() TO "service_role";
 
+REVOKE ALL ON FUNCTION "public"."change_user_role_assignment"(uuid, uuid, uuid, uuid, text, text, text) FROM "postgres";
+
+GRANT EXECUTE ON FUNCTION "public"."change_user_role_assignment"(uuid, uuid, uuid, uuid, text, text, text) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION "public"."change_user_role_assignment"(uuid, uuid, uuid, uuid, text, text, text) TO "service_role";
+
 GRANT EXECUTE ON FUNCTION "public"."generate_patient_medical_id"() TO PUBLIC, "anon", "authenticated";
 
 REVOKE ALL ON FUNCTION "public"."generate_patient_medical_id"() FROM "postgres";
@@ -837,6 +1019,14 @@ REVOKE ALL ON FUNCTION "public"."generate_patient_medical_id"() FROM "postgres";
 GRANT EXECUTE ON FUNCTION "public"."generate_patient_medical_id"() TO "postgres";
 
 GRANT EXECUTE ON FUNCTION "public"."generate_patient_medical_id"() TO "service_role";
+
+GRANT EXECUTE ON FUNCTION "public"."get_user_permissions"(uuid) TO PUBLIC, "anon", "authenticated";
+
+REVOKE ALL ON FUNCTION "public"."get_user_permissions"(uuid) FROM "postgres";
+
+GRANT EXECUTE ON FUNCTION "public"."get_user_permissions"(uuid) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION "public"."get_user_permissions"(uuid) TO "service_role";
 
 GRANT EXECUTE ON FUNCTION "public"."is_admin_user"() TO PUBLIC, "anon", "authenticated";
 
@@ -1030,6 +1220,14 @@ GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."reminders" TO "service_role";
 
+REVOKE ALL ON TABLE "public"."role_assignment_audit" FROM "postgres";
+
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."role_assignment_audit" TO "postgres";
+
+REVOKE ALL ON TABLE "public"."role_assignment_audit" FROM "service_role";
+
+GRANT INSERT, SELECT ON TABLE "public"."role_assignment_audit" TO "service_role";
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."role_permissions" TO "anon", "authenticated";
 
 REVOKE ALL ON TABLE "public"."role_permissions" FROM "postgres";
@@ -1054,7 +1252,13 @@ GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."terminology_codes" TO "service_role";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."user_roles" TO "anon", "authenticated";
+REVOKE ALL ON TABLE "public"."user_roles" FROM "anon";
+
+GRANT MAINTAIN, SELECT ON TABLE "public"."user_roles" TO "anon";
+
+REVOKE ALL ON TABLE "public"."user_roles" FROM "authenticated";
+
+GRANT MAINTAIN, SELECT ON TABLE "public"."user_roles" TO "authenticated";
 
 REVOKE ALL ON TABLE "public"."user_roles" FROM "postgres";
 

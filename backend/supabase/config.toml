@@ -8,7 +8,7 @@ project_id = "backend"
 [api]
 enabled = true
 # Port to use for the API URL.
-port = 54321
+port = 58561
 # Schemas to expose in your API. Tables, views and stored procedures in this schema will get API
 # endpoints. `public` and `graphql_public` schemas are included by default.
 schemas = ["public", "graphql_public"]
@@ -17,6 +17,9 @@ extra_search_path = ["public", "extensions"]
 # The maximum number of rows returned from a view, table, or stored procedure. Limits payload size
 # for accidental or malicious requests.
 max_rows = 1000
+# The maximum number of connections in the local PostgREST database pool. Left unset, the default
+# pool size is unchanged.
+# db_pool = 10
 # Controls whether new tables, views, sequences and functions created in the `public` schema by
 # `postgres` are reachable through the Data API roles (`anon`, `authenticated`, `service_role`)
 # without explicit GRANTs, matching the cloud default. Set to `false` to require explicit GRANTs
@@ -32,9 +35,9 @@ enabled = false
 
 [db]
 # Port to use for the local database URL.
-port = 54322
+port = 58562
 # Port used by db diff command to initialize the shadow database.
-shadow_port = 54320
+shadow_port = 58563
 # Maximum amount of time to wait for health check when starting the local database.
 health_timeout = "2m"
 # The database major version to use. This has to be the same as your remote database's. Run `SHOW
@@ -46,7 +49,7 @@ orioledb_version = ""
 [db.pooler]
 enabled = false
 # Port to use for the local connection pooler.
-port = 54329
+port = 58564
 # Specifies when a server connection can be reused by other clients.
 # Configure one of the supported pooler modes: `transaction`, `session`.
 pool_mode = "transaction"
@@ -96,7 +99,7 @@ enabled = true
 [studio]
 enabled = true
 # Port to use for Supabase Studio.
-port = 54323
+port = 58565
 # External URL of the API server that frontend connects to.
 api_url = "http://127.0.0.1"
 # OpenAI API Key to use for Supabase AI in the Supabase Studio.
@@ -107,10 +110,10 @@ openai_api_key = "env(OPENAI_API_KEY)"
 [local_smtp]
 enabled = true
 # Port to use for the email testing server web interface.
-port = 54324
+port = 58566
 # Uncomment to expose additional ports for testing user applications that send emails.
-# smtp_port = 54325
-# pop3_port = 54326
+# smtp_port = 58567
+# pop3_port = 58568
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
@@ -399,7 +402,7 @@ deno_version = 2
 
 [analytics]
 enabled = true
-port = 54327
+port = 58569
 # Configure one of the supported backends: `postgres`, `bigquery`.
 backend = "postgres"
 
