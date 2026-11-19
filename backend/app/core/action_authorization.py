@@ -24,6 +24,7 @@ ROLE_CATEGORIES = frozenset(
 )
 RESOURCE_FAMILIES = (
     "patient_profile",
+    "patient_admin_data",
     "practitioner_profile",
     "clinical_record",
     "appointment",
@@ -74,6 +75,16 @@ def _build_action_matrix() -> dict[str, dict[str, dict[str, ActionRule]]]:
 
     add("patient_profile", "read", PATIENT, "subject_is_actor")
     add("patient_profile", "update", PATIENT, "subject_is_actor", "permitted_fields")
+    add(
+        "patient_admin_data",
+        "read",
+        ORGANIZATION_ADMINISTRATOR,
+        "organization_scope",
+        "patient_admin_link_verified",
+        "explicit_admin_purpose",
+        "minimum_patient_fields",
+        "audit_recorded",
+    )
     add("practitioner_profile", "read", PRACTITIONER, "subject_is_actor")
 
     add(

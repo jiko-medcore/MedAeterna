@@ -6,7 +6,7 @@
 
 SPEC-03 defines what each principal category may do for each resource family. It applies the role categories and scopes from SPEC-01 and the role lifecycle/delegation rules from SPEC-02.
 
-This matrix does not make organization membership a patient-care relationship. It does not settle the clinical relationship and consent rules in SPEC-04 and SPEC-05, the organization-administrator patient-data boundary in SPEC-07, the system-administrator clinical-data boundary in SPEC-08, or operational-event visibility in SPEC-09. Those conditions remain denied until the referenced specification or approved workflow provides the necessary check.
+This matrix does not make organization membership a patient-care relationship. SPEC-07 defines a separate, minimum-field administrative patient-data view; full profile and clinical access remain denied to organization administrators. SPEC-04 and SPEC-05 still govern clinical relationships and consent, SPEC-08 governs system-administrator patient-data access, and SPEC-09 governs operational-event visibility.
 
 The policy registry in backend/app/core/action_authorization.py is an executable reference for the role/action part of a decision. It does not access the database, verify relationship facts, or secure a route by itself. A future route guard must obtain required condition results from trusted application logic and apply this decision before using a privileged backend client. Phase 0 SEC findings for missing or incomplete route authorization remain open until route-level tests and evidence close them.
 
@@ -40,7 +40,8 @@ The entries below list the only permissions that may be considered. Every action
 
 | Resource family | Patient | Practitioner | Organization administrator | System administrator |
 |---|---|---|---|---|
-| Patient profile | read own profile; update own permitted fields | None defined here | None; administrative patient-data access awaits SPEC-07 | None; clinical/profile access awaits SPEC-08 |
+| Patient profile | read own profile; update own permitted fields | None defined here | None; full patient profiles remain denied | None; clinical/profile access awaits SPEC-08 |
+| Patient administrative data | None | None | read only for a verified organization-linked patient and one approved administrative purpose, with purpose-specific fields and audit under SPEC-07 | None pending SPEC-08 |
 | Practitioner profile | None | read own profile | None; member-directory fields are limited by the membership row below | None |
 | Clinical records: medical history, observations, conditions, medication requests, prescriptions, lab results, encounters | read own permitted resources, conditional on resource being patient-readable | read, create, and update, conditional on organization scope, verified patient relationship, consent when required, and the clinical workflow | Denied | Denied; platform role alone never grants clinical access |
 | Appointments | read own appointments | read assigned/authorized appointments; create or update only through an approved appointment workflow and verified patient relationship | Denied pending a defined organization-level view | Denied pending a defined operational purpose |
@@ -72,7 +73,9 @@ The entries below list the only permissions that may be considered. Every action
 | minimal_member_data | The response contains only member/role fields needed for the stated management action. |
 | event_visibility_approved / event_retry_authority | SPEC-09 approves visible event fields/organizations and who may retry. |
 | audit_visibility_approved | The audit view purpose, organization boundary, and returned fields are approved. |
-| explicit_admin_purpose | A server-defined platform/security purpose is present and recorded; a system role alone is insufficient. |
+| explicit_admin_purpose | A server-defined, allowlisted workflow purpose is present and recorded; an administrator role alone is insufficient. SPEC-07 defines patient-administration purposes; SPEC-08/09 define platform/security purposes. |
+| patient_admin_link_verified | Trusted backend verifies a current registration, appointment-coordination, or billing relationship between this patient and the exact organization. Membership, care-team role, search result, or client ID alone is insufficient. |
+| minimum_patient_fields | The response projection is restricted to the SPEC-07 field allowlist for the selected purpose; unknown or mixed-purpose fields deny. |
 | audit_recorded | The action emits a protected audit record with actor, operation, resource, scope, time, and outcome. |
 | soft_deactivation | The resource supports reversible deactivation and retains required history. |
 
@@ -81,6 +84,7 @@ Conditions may be supplied to the evaluator only after trusted checks pass. The 
 ## Resource mapping
 
 - patient_profile: patient profile, summary, and patient-facing profile fields.
+- patient_admin_data: SPEC-07's limited organization-administrator administrative view; never a clinical record or full patient profile.
 - practitioner_profile: practitioner profile and self-service fields.
 - clinical_record: medical history, observations, conditions, medication resources, prescriptions, laboratory results, and encounters.
 - appointment, reminder, consent_preference, and care_team: their corresponding modules.
@@ -94,7 +98,7 @@ Each endpoint must map to one resource family and one action, or to multiple exp
 
 ## Executable policy and tests
 
-The reference evaluator is backend/app/core/action_authorization.py. It is pure policy code with no database calls. It covers all 13 resource families and six actions; requires exact organization scope for organization-scoped roles; requires self-ownership for self-service; returns missing gates for conditional access; and denies unknown values, unmapped roles, cross-organization requests, self-grants, and clinical-record deletion.
+The reference evaluator is backend/app/core/action_authorization.py. It is pure policy code with no database calls. It covers all 14 resource families and six actions; requires exact organization scope for organization-scoped roles; requires self-ownership for self-service; returns missing gates for conditional access; and denies unknown values, unmapped roles, cross-organization requests, self-grants, and clinical-record deletion. SPEC-07's purpose and field allowlists are enforced by backend/app/core/organization_admin_patient_access.py.
 
 Focused tests are in backend/tests/core/test_action_authorization.py. In addition to scenario checks, data-driven tests exercise every declared matrix rule with its gates satisfied and verify every empty role/action cell denies. Other tests cover unknown/unmapped denial, owner-only self-service, field restrictions, patient clinical-resource limits, practitioner relationship/workflow conditions, tenant isolation, role self-grant/revocation behavior, system-admin clinical denial, and audited event retry.
 
@@ -107,6 +111,12 @@ Focused tests are in backend/tests/core/test_action_authorization.py. In additio
 - [x] System-admin status grants no patient clinical access; organization-admin status grants no cross-tenant access.
 - [x] The reference evaluator fails closed for unknown/unmapped roles, missing context, and unsatisfied conditions.
 - [x] Focused policy tests pass.
+
+## SPEC-07 amendment verification
+
+Command: `.venv/Scripts/python.exe -m pytest tests/core/test_organization_admin_patient_access.py tests/core/test_action_authorization.py tests/core/test_role_catalogue.py -q --tb=short -p no:cacheprovider` (run from `backend/`).
+
+Result: **52 passed**, with 12 dependency deprecation warnings from installed `pyiceberg`/Pydantic packages and no test failures. This run verifies the updated 14-resource matrix, purpose-to-field limits, role scope, and administrative patient-data denial cases.
 
 ## Deferred enforcement work
 
