@@ -51,7 +51,7 @@ The entries below list the only permissions that may be considered. Every action
 | Organization configuration: profile, departments, healthcare services, hours, branding | None unless a separate public-read rule is approved | None unless a separate organization-read rule is approved | read, create, update, and administer own organization; delete only supported child configuration through audited soft deactivation, never hard-delete the organization | No cross-organization override is implied; platform operations belong to platform configuration |
 | Organization membership | None | None | read minimum member data and create invitations in own organization, subject to inviter authority and audit | None through this resource; use the SPEC-02 role-assignment path |
 | Role assignments | None | None | read minimum role data and administer practitioner-category grants/revocations in own organization under SPEC-02; no self-grant or privileged-role delegation | read and administer only the SPEC-02 system path for org_admin/super_admin; no self-grant or patient-role assignment |
-| Operational events | None | None | read only organization-scoped event data explicitly approved by SPEC-09; no retry | read only approved, redacted operational metadata for an explicit purpose; retry only with retry authority, patient-data redaction, and audit |
+| Operational events | None | None | read bounded, redacted metadata for allowlisted events in own organization under SPEC-09; no retry | read approved, redacted metadata for an explicit purpose; retry only one eligible retry-safe event with reason, patient-data redaction, and audit |
 | Audit records | None | None | read only approved records for own organization and permitted fields | read only approved, redacted non-patient metadata for a defined security/platform purpose; no change or deletion |
 | Platform configuration | None | None | None | read, create, update, and administer for explicit platform purposes with audit. Delete is denied; use a reviewed replacement/deactivation workflow. |
 
@@ -71,7 +71,8 @@ The entries below list the only permissions that may be considered. Every action
 | inviter_authority / role_delegation_policy | Current authority and allowed target-role delegation are revalidated under SPEC-02. |
 | no_self_grant | For a grant, actor and target differ. Self-revocation remains allowed under SPEC-02. |
 | minimal_member_data | The response contains only member/role fields needed for the stated management action. |
-| event_visibility_approved / event_retry_authority | SPEC-09 approves visible event fields/organizations and who may retry. |
+| event_visibility_approved / event_retry_authority | SPEC-09 approves visible event types/fields and organization scope; retry authority also verifies eligible state, approved handler, single-event action, and required reason. |
+| event_payload_redacted | Event payloads and raw failure details are removed from the response before any event metadata is returned. |
 | audit_visibility_approved | The audit view purpose, organization boundary, and returned fields are approved. |
 | explicit_admin_purpose | A server-defined, allowlisted workflow purpose is present and recorded; an administrator role alone is insufficient. SPEC-07 defines patient-administration purposes; SPEC-08/09 define platform/security purposes. |
 | patient_data_redacted | Trusted server code removes patient identifiers, clinical content, and patient-linked audit/event payloads before system-administrator visibility or retry controls; an opaque non-patient-linked event reference may remain. |
@@ -108,7 +109,7 @@ Focused tests are in backend/tests/core/test_action_authorization.py. In additio
 - [x] Read, create, update, delete, administer, and retry have independent semantics.
 - [x] Every listed resource family has an entry for every action and role category; unlisted cells deny by default.
 - [x] Patient, practitioner, organization-administrator, and system-administrator boundaries follow the Phase 0 plan and SPEC-01/02.
-- [x] Organization scope, self-service ownership, clinical relationship, workflow, purpose, consent, audit, and system-admin patient-data redaction gates are explicit.
+- [x] Organization scope, self-service ownership, clinical relationship, workflow, purpose, consent, audit, event-payload redaction, and system-admin patient-data redaction gates are explicit.
 - [x] System-admin status grants no patient clinical access; organization-admin status grants no cross-tenant access.
 - [x] The reference evaluator fails closed for unknown/unmapped roles, missing context, and unsatisfied conditions.
 - [x] Focused policy tests pass.
@@ -120,6 +121,8 @@ Command: `.venv/Scripts/python.exe -m pytest tests/core/test_organization_admin_
 Result: **52 passed**, with 12 dependency deprecation warnings from installed `pyiceberg`/Pydantic packages and no test failures. This run verifies the updated 14-resource matrix, purpose-to-field limits, role scope, and administrative patient-data denial cases.
 
 SPEC-08 policy regression command: `.venv/Scripts/python.exe -m pytest tests/core/test_system_admin_patient_access.py tests/core/test_action_authorization.py tests/core/test_role_catalogue.py tests/core/test_organization_admin_patient_access.py tests/core/test_patient_relationship_policy.py tests/core/test_consent_policy.py tests/core/test_patient_access_grants_schema.py -q --tb=short -p no:cacheprovider` (run from `backend/`). Result: **338 passed**, with 12 dependency deprecation warnings and no test failures. The system-admin event/audit rules now also require trusted patient-data redaction.
+
+SPEC-09 event-policy regression command: `.venv/Scripts/python.exe -m pytest tests/core/test_operational_event_policy.py tests/core/test_event_logging.py tests/core/test_action_authorization.py tests/core/test_role_catalogue.py tests/core/test_system_admin_patient_access.py tests/core/test_organization_admin_patient_access.py tests/core/test_patient_relationship_policy.py tests/core/test_consent_policy.py tests/core/test_patient_access_grants_schema.py -q --tb=short -p no:cacheprovider` (run from `backend/`). Result: **373 passed**, with 12 dependency deprecation warnings and no test failures. Event reads require safe payload projection/audit; system-admin event operations require patient-data redaction, purpose, and retry gates.
 
 ## Deferred enforcement work
 

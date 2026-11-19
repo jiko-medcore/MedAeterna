@@ -64,7 +64,4 @@ def handle_organization_onboarding(event):
 # -----------------------------------------------------
 @register(EventTypes.ORGANIZATION_ONBOARDING_COMPLETED)
 def handle_organization_onboarding_completed(event):
-    logger.info(
-        "Organization onboarding completed: %s",
-        event["aggregate_id"]
-    )
+    logger.info("Organization onboarding completed")

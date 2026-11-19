@@ -13,10 +13,7 @@ logger= logging.getLogger(__name__)
 # ----- Patient Create Hanlder ----- 
 @register(EventTypes.PATIENT_CREATED)
 def handle_patient_created(event):
-    logger.info(
-        f"HANDLER RECEIVED EVENT {event['event_type']} "
-        f"FOR {event['aggregate_id']}"
-    )
+    logger.info("Patient event handler started")
 
     emit_event(
         aggregate_type="patient",
@@ -25,7 +22,7 @@ def handle_patient_created(event):
         payload=event["payload"]
     )
 
-    logger.info("ONBOARDING EMAIL REQUESTED EMITTED")
+    logger.info("Patient onboarding notification was queued")
     
 
 # ----- Onboarding Email Request Handler -----
@@ -54,6 +51,5 @@ def handle_onboarding_email_requested(event):
 def handle_onboarding_email_sent(event):
 
     logger.info(
-        "Onboarding email completed for %s",
-        event["aggregate_id"]
+        "Patient onboarding notification completed"
     )

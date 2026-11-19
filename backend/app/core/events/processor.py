@@ -13,6 +13,7 @@ from app.core.events.state import (
     mark_failed,
 )
 from app.core.events.constants import BATCH_SIZE
+from app.core.operational_event_policy import normalize_event_error_code
 
 
 logger = logging.getLogger(__name__)
@@ -75,8 +76,7 @@ def process_pending_events():
             # Skip permanently exhausted retries
             if event.get("retry_count", 0) >= event.get("max_retries", 3):
                 logger.warning(
-                    "Event %s reached max retries",
-                    event_id
+                    "Operational event reached max retries"
                 )
                 continue
 
@@ -85,9 +85,7 @@ def process_pending_events():
                 continue
 
             logger.info(
-                "Processing event %s (%s)",
-                event_id,
-                event.get("event_type"),
+                "Processing operational event"
             )
 
             try:
@@ -100,14 +98,14 @@ def process_pending_events():
 
             except Exception as e:
 
-                logger.exception(
-                    "Failed processing event %s",
-                    event_id,
+                logger.error(
+                    "Operational event handler failed (%s)",
+                    normalize_event_error_code(e),
                 )
 
                 mark_failed(
                     event_id,
-                    reason=f"{type(e).__name__}: {str(e)}",
+                    reason=normalize_event_error_code(e),
                 )
 
         # Safety guard against infinite loops

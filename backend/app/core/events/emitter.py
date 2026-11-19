@@ -1,5 +1,4 @@
 from app.core.supabase_admin import supabase_admin
-from app.core.config import settings
 import logging
 
 
@@ -14,13 +13,6 @@ def emit_event(
     payload: dict | None = None
 ):
     
-    logger.info("EMIT EVENT START")
-    logger.info(f"EVENT TYPE: {event_type}")
-    logger.info(f"SUPABASE URL: {settings.SUPABASE_URL}")
-    logger.info(
-        f"SECRET KEY PREFIX: {settings.SUPABASE_SECRET_KEY[:20]}"
-    )
-
     result= (
         supabase_admin
         .table("events")
@@ -33,10 +25,6 @@ def emit_event(
         .execute()
     )
 
-    logger.info(
-        "Emitted event %s (%s)",
-        event_type,
-        aggregate_id
-    )
+    logger.info("Operational event emitted")
 
     return result

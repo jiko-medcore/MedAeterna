@@ -26,12 +26,6 @@ def dispatch_event(event: dict):
             f"event type '{event_type}'"
         )
 
-    logger.info(
-        "Dispatching event %s (%s)",
-        event["id"],
-        event_type
-    )
-
-
+    logger.info("Dispatching registered operational event handler")
 
     handler(event)

@@ -18,7 +18,7 @@ This specification does not grant practitioners or organization administrators e
 
 ## Permitted system-administrator operations involving operational metadata
 
-System administrators may use the SPEC-03/SPEC-09 operational event and audit capabilities only for an explicit, server-allowlisted platform/security purpose, with resource-specific visibility and audit controls. Before any system-administrator response or retry control is exposed, patient identifiers, clinical content, consent details, patient-linked audit fields, and event payloads must be redacted. Opaque event references may be used only when they cannot be resolved by the administrator to a patient record.
+System administrators may use the SPEC-03/SPEC-09 operational event and audit capabilities only for an explicit, server-allowlisted platform/security purpose, with resource-specific visibility and audit controls. Before any system-administrator response or retry control is exposed, patient identifiers, clinical content, consent details, patient-linked audit fields, and event payloads must be redacted. Opaque event references may be used only when they cannot be resolved by the administrator to a patient record; SPEC-09 additionally suppresses patient event types and aggregate identifiers.
 
 Redaction is a trusted server-side/data-layer condition, not a UI-only display rule. A privileged backend query must apply the same projection and must not return a patient payload to code that can serialize it. Event retry may operate on a trusted opaque event reference, but the administrator does not receive the underlying patient payload. SPEC-09 still defines exact operational-event visibility and retry authority.
 
@@ -28,7 +28,7 @@ Every permitted operation records a protected audit event with the actor, explic
 
 The SPEC-03 reference matrix already denies `system_administrator` on patient-profile and clinical-record actions. The admin audit and event route modules inspected for this decision depend on `get_current_user` and call their query/replay services; this does not establish that patient data is exposed, because service projections, effective grants, and RLS are separate. It does show that route-level system-admin checks and redaction are not demonstrated by the current route code. No query results, patient rows, or hosted project were inspected for SPEC-08.
 
-The reference guard is `backend/app/core/system_admin_patient_access.py`. It expressly denies the system-admin role for patient-related resources regardless of action or a requested break-glass flag. SPEC-03 requires `patient_data_redacted` for system-admin operational event read/retry and audit read. These checks are pure policy code; they do not resolve roles, redact data, secure routes, or alter database permissions by themselves.
+The reference guard is `backend/app/core/system_admin_patient_access.py`. It expressly denies the system-admin role for patient-related resources regardless of action or a requested break-glass flag. SPEC-03 requires `event_payload_redacted` and `patient_data_redacted` for system-admin operational event read/retry and audit read. SPEC-09 defines the exact operational metadata projection. These checks are pure policy code; they do not resolve roles, redact data, secure routes, or alter database permissions by themselves.
 
 ## Acceptance criteria
 
@@ -47,3 +47,5 @@ Focused command: `.venv/Scripts/python.exe -m pytest tests/core/test_system_admi
 Security-policy regression command: `.venv/Scripts/python.exe -m pytest tests/core/test_system_admin_patient_access.py tests/core/test_action_authorization.py tests/core/test_role_catalogue.py tests/core/test_organization_admin_patient_access.py tests/core/test_patient_relationship_policy.py tests/core/test_consent_policy.py tests/core/test_patient_access_grants_schema.py -q --tb=short -p no:cacheprovider` (run from `backend/`). Result: **338 passed**. Both runs reported 12 dependency deprecation warnings from installed `pyiceberg`/Pydantic packages; no tests failed.
 
 `git diff --check` is clean. Tests prove only reference-policy behavior. Route-level authorization/redaction tests, RLS and grants tests, audit delivery, and deployed configuration review remain required to close implementation findings.
+
+SPEC-09's latest security-policy regression command re-ran the system-admin redaction gates together with the neighboring SPEC-03 through SPEC-08 policy suites: **373 passed**, with 12 dependency deprecation warnings and no test failures.
