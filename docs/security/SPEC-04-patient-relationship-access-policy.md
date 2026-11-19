@@ -8,7 +8,7 @@ SPEC-04 defines when a practitioner has a relationship to a patient that can sat
 
 This policy is independent of role/action permission. A relationship does not grant an action that SPEC-03 denies. Authentication, current role assignment and organization scope (SPEC-01/02), consent (SPEC-05), clinical workflow, purpose, field filtering, and database grants/RLS are separate required checks. Every layer must allow the request.
 
-Organization membership, employment, a practitioner profile, an organization-admin role, prior treatment, patient search results, or a client-supplied patient/practitioner/organization ID do not establish a patient-care relationship. System administrators and organization administrators receive no clinical relationship by virtue of their administrative role. Emergency access remains denied pending the explicit break-glass decision in SPEC-08.
+Organization membership, employment, a practitioner profile, an organization-admin role, prior treatment, patient search results, or a client-supplied patient/practitioner/organization ID do not establish a patient-care relationship. System administrators and organization administrators receive no clinical relationship by virtue of their administrative role. SPEC-08 prohibits system-administrator patient access and break-glass access in the current Phase 0 policy; no emergency clinical relationship is inferred.
 
 ## Relationship decisions
 
@@ -61,7 +61,7 @@ Laboratory result creation or update requires a relationship bound to the exact 
 
 The repository contains incompatible relationship representations: application code references `patient_access`, while a standalone SQL file defines `patient_access_grants`; local Supabase has neither grant table installed. Local Supabase also contains `patient_care_team`, `clinicians_patients`, and `care_teams` with differing columns and lifecycle fields. SPEC-06 selects `public.patient_access_grants` as the canonical explicit patient-approved read-grant table and defines a migration path. It does not select a canonical treatment-assignment table or claim the grant table is installed.
 
-Until that reconciliation, no legacy row is assumed to be approved, active, scoped, or equivalent to another source merely because it exists. Emergency grant values in the legacy schema are specifically not accepted by this policy; SPEC-08 must define any emergency path.
+Until that reconciliation, no legacy row is assumed to be approved, active, scoped, or equivalent to another source merely because it exists. Emergency grant values in the legacy schema are specifically not accepted by this policy; SPEC-08 prohibits break-glass access in the current Phase 0 policy.
 
 ## Executable policy and tests
 
@@ -96,5 +96,5 @@ These are policy unit tests. Route-level allow/deny tests, live RLS/grant tests,
 
 - SPEC-05 defines consent scope, purpose, status, expiry, revocation, and precedence.
 - SPEC-06 defines the canonical explicit grant schema and migration path; implementation remains pending.
-- SPEC-08 decides whether an audited, time-limited emergency access path exists.
+- SPEC-08 prohibits system-administrator access and break-glass in the current Phase 0 policy. A future clinical emergency workflow would require a separate approved specification.
 - Remediation integrates the evaluator or equivalent central policy into every protected route and tests privileged backend queries, RLS, and grants.

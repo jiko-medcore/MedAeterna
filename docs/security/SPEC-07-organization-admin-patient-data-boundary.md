@@ -39,7 +39,7 @@ Any missing trusted evidence is conditional/deny at the endpoint. A conflicting 
 - `patient_profile` remains self-service for the patient only; an organization administrator cannot use this rule to read the full profile.
 - `clinical_record` stays denied to organization administrators under SPEC-03, irrespective of organization membership, care-team administration, or patient grant.
 - Appointment records, organization membership, role assignments, and audit records retain their own resource-specific policies.
-- System-administrator access to patient or clinical data is unresolved and remains denied under SPEC-08.
+- System-administrator access to patient or clinical data is prohibited under SPEC-08.
 - This policy grants no patient-data update, create, delete, administer, or retry action.
 
 ## Data-access implementation requirements

@@ -31,7 +31,7 @@ The next approved migration will create or reshape `public.patient_access_grants
 | `patient_id` | Required foreign key to `public.patients(id)`. Backend resolves and verifies the patient's authenticated identity; never trust a request value alone. |
 | `practitioner_id` | Required foreign key to `public.practitioners(id)`. Recipient must match the verified practitioner identity. |
 | `organization_id` | Required foreign key to `public.organizations(id)`; exact organization scope, no null/global grant. |
-| `access_type` | Required and constrained to `patient_granted`. `assigned` is a treatment relationship; `emergency` belongs to SPEC-08. Neither belongs in this table. |
+| `access_type` | Required and constrained to `patient_granted`. `assigned` is a treatment relationship; emergency grants are not supported by the current Phase 0 policy (SPEC-08). Neither belongs in this table. |
 | `access_level` | Required and constrained to `read`. These grants never permit clinical writes. |
 | `resource_families` | Required, non-empty, unique list drawn only from the SPEC-04 clinical resource catalogue. No unscoped grant. |
 | `status` | Required: `pending`, `approved`, `revoked`, or system-set `expired`. `expires_at` is enforced immediately even before a cleanup worker records the `expired` state; no `active` status alias. |
@@ -76,7 +76,7 @@ No data is auto-promoted solely because it exists in a legacy table.
    - `patient_access` rows lack the canonical scope/lifecycle contract and require review or patient regrant; do not translate `user_id` automatically.
    - `patient_access_grants` rows may be carried forward only if recipient, organization, patient, resource scope, patient grant authority, status, and period are independently verified. The current standalone definition has no resource scope or grantor, so its rows cannot be auto-approved.
    - `access_type='assigned'` is evaluated only through the separately authorized treatment-assignment source; it is not converted into a patient grant.
-   - `access_type='emergency'` remains denied and is handled only if SPEC-08 defines break-glass policy.
+   - `access_type='emergency'` remains denied; SPEC-08 prohibits break-glass access in the current Phase 0 policy.
    - Preserve unresolved rows in a restricted legacy archive or leave them denied pending review. Do not delete audit or historical evidence during cutover.
 5. **Verify before retiring legacy access:** run data reconciliation, API allow/deny tests, audit tests, and database RLS/grant tests; confirm no application or background-job reader still uses `patient_access`. Retire or archive that name only in a later migration after consumers and rollback needs are accounted for.
 

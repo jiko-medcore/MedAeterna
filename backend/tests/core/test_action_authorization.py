@@ -369,6 +369,7 @@ def test_system_event_retry_requires_explicit_purpose_authority_and_audit():
         "audit_recorded",
         "event_retry_authority",
         "explicit_admin_purpose",
+        "patient_data_redacted",
     }
 
     allowed = evaluate_action(
@@ -379,6 +380,34 @@ def test_system_event_retry_requires_explicit_purpose_authority_and_audit():
             "audit_recorded",
             "event_retry_authority",
             "explicit_admin_purpose",
+            "patient_data_redacted",
         },
     )
     assert allowed.allowed
+
+
+def test_system_admin_event_and_audit_views_require_patient_data_redaction():
+    roles = [assignment(SYSTEM_ADMINISTRATOR)]
+    cases = [
+        ("operational_event", "read", {"explicit_admin_purpose", "event_visibility_approved", "audit_recorded"}),
+        ("operational_event", "retry", {"explicit_admin_purpose", "event_retry_authority", "audit_recorded"}),
+        ("audit_record", "read", {"explicit_admin_purpose", "audit_visibility_approved", "audit_recorded"}),
+    ]
+
+    for resource, action, remaining_conditions in cases:
+        missing_redaction = evaluate_action(
+            actor_roles=roles,
+            resource=resource,
+            action=action,
+            verified_conditions=remaining_conditions,
+        )
+        assert missing_redaction.decision == "conditional"
+        assert missing_redaction.missing_conditions == ("patient_data_redacted",)
+
+        visible = evaluate_action(
+            actor_roles=roles,
+            resource=resource,
+            action=action,
+            verified_conditions=remaining_conditions | {"patient_data_redacted"},
+        )
+        assert visible.allowed

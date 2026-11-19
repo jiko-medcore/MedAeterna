@@ -32,7 +32,7 @@ The record must match all of the following:
 | Recipient | Either the exact practitioner identity or an explicitly recorded organization recipient. A null practitioner ID does not imply organization-wide consent. |
 | Resource | The exact requested clinical resource family is explicitly in scope. Missing or unparsed scope denies. |
 | Purpose | Exact canonical purpose code matches the server policy and record. A broad label or a purpose for another workflow does not match. |
-| Consent type | The trusted policy's allowlist for this purpose includes the record's consent type. `emergency` is excluded here and reserved for SPEC-08. |
+| Consent type | The trusted policy's allowlist for this purpose includes the record's consent type. `emergency` is excluded here and break-glass is prohibited by SPEC-08 for the current Phase 0 policy. |
 | Action | The access level covers the requested action according to the table below. Consent does not supply SPEC-03 permission. |
 | Lifecycle | The latest applicable consent decision is active, authorized, effective now, unrevoked, and unexpired. |
 
@@ -61,7 +61,7 @@ Consent for an organization is allowed only when the organization is explicitly 
 - Draft rows are ignored because they have not become an authorized consent decision. Unrelated resources, purposes, patients, recipients, or organizations do not supersede each other.
 - A patient must revoke an existing broad grant before replacing it with a narrower grant. A new narrow grant does not implicitly revoke older consent for other resources that the broad grant still covers.
 - `otp_verified` may record an additional identity step, but it is not a substitute for verified patient authority and explicit consent scope. This SPEC does not impose OTP as a universal requirement; a stricter workflow can require it through a separate trusted policy.
-- Emergency access is not authorized by `emergency_access=true` or `consent_type=emergency`. Any break-glass decision, approval, expiry, audit, and review are SPEC-08.
+- Emergency access is not authorized by `emergency_access=true` or `consent_type=emergency`. SPEC-08 prohibits system-administrator access and break-glass in the current Phase 0 policy; any future clinical emergency workflow requires a separate approved specification.
 
 ## Current storage and local database inspection
 
@@ -86,7 +86,7 @@ Focused tests are in `backend/tests/core/test_consent_policy.py`. They cover exa
 - [x] Active status, finite expiry, effective time, immediate revocation, and ambiguous/multiple-record precedence are defined.
 - [x] The evaluator treats revocation as terminal and only a separate later active record can regrant the same scope.
 - [x] Consent rows cannot be combined to manufacture missing scope; a newer decision cannot fall back to older broader consent.
-- [x] Patient grants do not replace SPEC-04 relationship checks; emergency consent is denied pending SPEC-08.
+- [x] Patient grants do not replace SPEC-04 relationship checks; emergency consent is denied under SPEC-08's current prohibition on break-glass.
 - [x] Current schema deficiencies and local RLS/grant findings are recorded without applying an unapproved schema change.
 - [x] Focused consent-policy tests pass for positive, negative, cross-patient, cross-recipient, cross-organization, expiry, revocation, precedence, and privilege-escalation cases.
 
@@ -111,4 +111,4 @@ These are policy unit tests and read-only catalog checks. Route-level grant/revo
 - Enforce consent-scope immutability and revoke/regrant transitions in the consent service and database boundary.
 - Add table-by-table grants and RLS policies plus pgTAP tests; include authorization when backend code uses a privileged client.
 - Integrate consent evaluation with SPEC-03 action, SPEC-04 relationship, role scope, and the approved resource workflow.
-- Resolve break-glass access and emergency consent, if any, under SPEC-08.
+- Emergency consent and break-glass remain denied under SPEC-08; a future clinical emergency workflow requires a separate approved specification.

@@ -248,6 +248,7 @@ def _build_action_matrix() -> dict[str, dict[str, dict[str, ActionRule]]]:
         SYSTEM_ADMINISTRATOR,
         "explicit_admin_purpose",
         "event_visibility_approved",
+        "patient_data_redacted",
         "audit_recorded",
     )
     add(
@@ -256,6 +257,7 @@ def _build_action_matrix() -> dict[str, dict[str, dict[str, ActionRule]]]:
         SYSTEM_ADMINISTRATOR,
         "explicit_admin_purpose",
         "event_retry_authority",
+        "patient_data_redacted",
         "audit_recorded",
     )
 
@@ -271,6 +273,8 @@ def _build_action_matrix() -> dict[str, dict[str, dict[str, ActionRule]]]:
         "read",
         SYSTEM_ADMINISTRATOR,
         "explicit_admin_purpose",
+        "audit_visibility_approved",
+        "patient_data_redacted",
         "audit_recorded",
     )
 
