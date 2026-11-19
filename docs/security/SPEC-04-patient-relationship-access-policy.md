@@ -59,7 +59,7 @@ Laboratory result creation or update requires a relationship bound to the exact 
 
 ## Relationship source reconciliation
 
-The repository currently contains incompatible relationship representations: `patient_access` is referenced by application code, while the supplied SQL creates `patient_access_grants`; it also contains `patient_care_team`, `clinicians_patients`, and care-team tables with differing columns and lifecycle fields. SPEC-04 defines the logical evidence contract above and does not select or migrate a canonical table. SPEC-06 must choose the canonical source and migration path before these semantics can be wired to production data.
+The repository contains incompatible relationship representations: application code references `patient_access`, while a standalone SQL file defines `patient_access_grants`; local Supabase has neither grant table installed. Local Supabase also contains `patient_care_team`, `clinicians_patients`, and `care_teams` with differing columns and lifecycle fields. SPEC-06 selects `public.patient_access_grants` as the canonical explicit patient-approved read-grant table and defines a migration path. It does not select a canonical treatment-assignment table or claim the grant table is installed.
 
 Until that reconciliation, no legacy row is assumed to be approved, active, scoped, or equivalent to another source merely because it exists. Emergency grant values in the legacy schema are specifically not accepted by this policy; SPEC-08 must define any emergency path.
 
@@ -77,7 +77,7 @@ Focused tests are in `backend/tests/core/test_patient_relationship_policy.py`. T
 - [x] Practitioner access requires an active treating assignment or an explicitly scoped approved read grant; read grants cannot authorize writes.
 - [x] Organization membership alone, client-supplied IDs, administrative roles, inactive/expired/revoked evidence, and emergency access do not authorize clinical access.
 - [x] SPEC-03 action policy, SPEC-05 consent, and workflow checks remain independent and required.
-- [x] The source-table mismatch is recorded without making SPEC-06's canonical-table decision prematurely.
+- [x] SPEC-06 selects the canonical explicit grant table; care-team source reconciliation and migration remain separately tracked.
 - [x] Focused tests pass for positive, negative, cross-patient, cross-organization, and privilege-escalation cases.
 
 ## Verification record
@@ -95,6 +95,6 @@ These are policy unit tests. Route-level allow/deny tests, live RLS/grant tests,
 ## Deferred work
 
 - SPEC-05 defines consent scope, purpose, status, expiry, revocation, and precedence.
-- SPEC-06 chooses the canonical relationship/grant schema and migration path.
+- SPEC-06 defines the canonical explicit grant schema and migration path; implementation remains pending.
 - SPEC-08 decides whether an audited, time-limited emergency access path exists.
 - Remediation integrates the evaluator or equivalent central policy into every protected route and tests privileged backend queries, RLS, and grants.
