@@ -12,13 +12,3 @@ supabase_admin: Client = create_client(
     settings.SUPABASE_URL,
     settings.SUPABASE_SECRET_KEY
 )
-
-# Logging output of Supabase Admin
-print("SUPABASE_URL:", settings.SUPABASE_URL)
-
-print(
-    "PUBLISHABLE ADMIN KEY PREFIX:",
-    settings.SUPABASE_SECRET_KEY[:20]
-    if settings.SUPABASE_SECRET_KEY
-    else None
-)
