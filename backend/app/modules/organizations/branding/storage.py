@@ -2,13 +2,13 @@
 
 from uuid import UUID
 
+from app.core.storage_upload_validation import (
+    StorageUploadValidationError,
+    validate_image_upload,
+)
 from app.core.supabase_admin import supabase_admin
 
-from .constants import (
-    ALLOWED_LOGO_CONTENT_TYPES, 
-    BUCKET, 
-    MAX_LOGO_SIZE_BYTES
-    )
+from .constants import BUCKET
 
 from .exceptions import InvalidLogoError
 
@@ -23,16 +23,14 @@ from .exceptions import InvalidLogoError
 # -----------------------------------------------------------------------------------
 def validate_logo(content_type: str | None, content: bytes) -> str:
     """Return the trusted extension after applying the upload safety policy."""
-    if content_type not in ALLOWED_LOGO_CONTENT_TYPES or not content or len(content) > MAX_LOGO_SIZE_BYTES:
-        raise InvalidLogoError()
-    signatures = {
-        "image/png": content.startswith(b"\x89PNG\r\n\x1a\n"),
-        "image/jpeg": content.startswith(b"\xff\xd8\xff"),
-        "image/webp": content.startswith(b"RIFF") and content[8:12] == b"WEBP",
-    }
-    if not signatures[content_type]:
-        raise InvalidLogoError()
-    return ALLOWED_LOGO_CONTENT_TYPES[content_type]
+    try:
+        return validate_image_upload(
+            bucket=BUCKET,
+            content_type=content_type,
+            content=content,
+        )
+    except StorageUploadValidationError as exc:
+        raise InvalidLogoError() from exc
 
 
 # -----------------------------------------------------------------------------------

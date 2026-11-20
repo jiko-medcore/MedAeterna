@@ -39,7 +39,7 @@ These are present in the current FastAPI routers and may be relevant to the prov
 | `GET` | `/patients/{patient_id}/summary` | Patient summary for authorized staff. |
 | `GET` | `/patients/{patient_id}/timeline` | Patient timeline for authorized staff. |
 | `POST` | `/patients/{patient_id}/assign` | Assign clinician to patient. |
-| `POST` | `/patients/profile/upload-avatar` | Upload patient avatar (`multipart/form-data`, field `file`). |
+| `POST` | `/patients/profile/upload-avatar` | Upload patient avatar (`multipart/form-data`, field `file`); PNG/JPEG/WebP, max 2 MiB, signed bytes required. |
 | `POST`, `GET`, `PATCH` | `/appointments/` and `/appointments/{appointment_id}` | Create/list/update appointments; list routes are scoped by patient or practitioner ID. |
 | `POST`, `GET`, `PATCH` | `/conditions/`, `/conditions/patient/{patient_id}`, `/conditions/encounter/{encounter_id}`, `/conditions/{condition_id}` | Clinical conditions. |
 | `POST`, `GET`, `PATCH` | `/observations/`, `/observations/patient/{patient_id}`, `/observations/encounter/{encounter_id}`, `/observations/{observation_id}` | Clinical observations/vitals. |

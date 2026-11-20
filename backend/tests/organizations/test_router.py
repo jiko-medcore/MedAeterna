@@ -10,6 +10,7 @@ from app.core.security import get_current_user
 from app.modules.organizations import router
 from app.modules.organizations.dependencies import require_organization_admin_for_org_id
 from app.modules.organizations.exceptions import (
+    OrganizationAccessDeniedError,
     OrganizationNotFoundError,
     UserOrganizationNotFoundError,
 )
@@ -344,38 +345,28 @@ def test_upload_organization_logo_success(
         "get_user_organization_id",
         return_value=str(ORGANIZATION_ID),
     )
-
-    public_url = (
-        "https://storage.test/organization-logos/"
-        f"{ORGANIZATION_ID}.png"
-    )
-
-    bucket = Mock()
-
-    bucket.upload.return_value = {
-        "path": f"{ORGANIZATION_ID}.png"
-    }
-
-    bucket.get_public_url.return_value = public_url
-
-    storage = Mock()
-    storage.from_.return_value = bucket
-
-    supabase = mocker.patch.object(
+    require_admin = mocker.patch.object(
         router,
-        "supabase",
+        "require_organization_admin_for_org_id",
     )
 
-    supabase.storage = storage
+    expected_path = f"{ORGANIZATION_ID}/logo.png"
+    public_url = f"https://storage.test/organization-logos/{expected_path}"
+
+    replace_logo = mocker.patch.object(
+        router,
+        "replace_logo",
+        return_value=(expected_path, public_url),
+    )
+
+    admin = mocker.patch.object(
+        router,
+        "supabase_admin",
+    )
 
     organizations_query = Mock()
-
-    organizations_query.update.return_value = (
-        organizations_query
-    )
-    organizations_query.eq.return_value = (
-        organizations_query
-    )
+    organizations_query.update.return_value = organizations_query
+    organizations_query.eq.return_value = organizations_query
     organizations_query.execute.return_value = Mock(
         data=[
             {
@@ -384,8 +375,7 @@ def test_upload_organization_logo_success(
             }
         ]
     )
-
-    supabase.table.return_value = organizations_query
+    admin.table.return_value = organizations_query
 
     content = b"\x89PNG\r\n\x1a\nfake-png"
 
@@ -401,48 +391,85 @@ def test_upload_organization_logo_success(
     )
 
     assert response.status_code == 200
+    assert response.json() == {
+        "message": "Logo uploaded successfully",
+        "logo_url": public_url,
+    }
 
-    body = response.json()
-
-    assert body["message"] == (
-        "Logo uploaded successfully"
+    get_org_id.assert_called_once_with(current_user["id"])
+    require_admin.assert_called_once_with(str(ORGANIZATION_ID), current_user)
+    replace_logo.assert_called_once_with(
+        organization_id=str(ORGANIZATION_ID),
+        content_type="image/png",
+        content=content,
     )
-    assert body["logo_url"] == public_url
+    admin.table.assert_called_once_with("organizations")
+    organizations_query.update.assert_called_once_with({"logo_url": public_url})
+    organizations_query.eq.assert_called_once_with("id", str(ORGANIZATION_ID))
+    organizations_query.execute.assert_called_once()
 
-    get_org_id.assert_called_once_with(
-        current_user["id"]
+
+def test_upload_organization_logo_requires_scoped_organization_admin(
+    authenticated_client,
+    current_user,
+    mocker,
+):
+    mocker.patch.object(
+        router,
+        "get_user_organization_id",
+        return_value=str(ORGANIZATION_ID),
+    )
+    require_admin = mocker.patch.object(
+        router,
+        "require_organization_admin_for_org_id",
+        side_effect=OrganizationAccessDeniedError(),
+    )
+    admin = mocker.patch.object(
+        router,
+        "supabase_admin",
     )
 
-    assert storage.from_.call_count == 2
-
-    storage.from_.assert_any_call(
-        "organization-logos"
+    response = authenticated_client.post(
+        "/organizations/upload-logo",
+        files={"file": ("logo.png", b"unused", "image/png")},
     )
 
-    bucket.upload.assert_called_once_with(
-        path=f"{ORGANIZATION_ID}.png",
-        file=content,
-        file_options={
-            "content-type": "image/png",
+    assert response.status_code == 403
+    require_admin.assert_called_once_with(str(ORGANIZATION_ID), current_user)
+    admin.table.assert_not_called()
+
+
+def test_upload_organization_logo_rejects_forged_content_before_storage_call(
+    authenticated_client,
+    mocker,
+):
+    mocker.patch.object(
+        router,
+        "get_user_organization_id",
+        return_value=str(ORGANIZATION_ID),
+    )
+    mocker.patch.object(
+        router,
+        "require_organization_admin_for_org_id",
+    )
+    admin = mocker.patch.object(
+        router,
+        "supabase_admin",
+    )
+
+    response = authenticated_client.post(
+        "/organizations/upload-logo",
+        files={
+            "file": (
+                "logo.png",
+                b"not-a-png",
+                "image/png",
+            )
         },
     )
 
-    bucket.get_public_url.assert_called_once_with(
-        f"{ORGANIZATION_ID}.png"
-    )
-
-    organizations_query.update.assert_called_once_with(
-        {
-            "logo_url": public_url,
-        }
-    )
-
-    organizations_query.eq.assert_called_once_with(
-        "id",
-        str(ORGANIZATION_ID),
-    )
-
-    organizations_query.execute.assert_called_once()
+    assert response.status_code == 400
+    admin.table.assert_not_called()
 
 
 def test_upload_organization_logo_requires_authentication(

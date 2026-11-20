@@ -31,7 +31,7 @@ from app.modules.organizations.queries import (
     get_user_organization_id,
     get_organization,
 )
-from app.core.supabase_client import supabase
+from app.core.supabase_admin import supabase_admin
 from app.shared.tasks.event_tasks import process_events_task
 from .profile.router import (
     router as profile_router,
@@ -48,6 +48,8 @@ from .operating_hours.router import (
 from .branding.router import (
     router as branding_router
 )
+from .branding.exceptions import InvalidLogoError
+from .branding.storage import replace_logo
 
 
 # ---------------------------------------
@@ -123,23 +125,23 @@ async def upload_logo(
     current_user=Depends(get_current_user)
 ) -> dict:
 
-    # Get org id
+    # Get org id and require scoped organization-admin authority before any
+    # object is written with the trusted storage client.
     org_id = get_user_organization_id(current_user["id"])
-
-    file_ext = file.filename.split(".")[-1]
-    file_path = f"{org_id}.{file_ext}"
+    require_organization_admin_for_org_id(org_id, current_user)
 
     file_bytes = await file.read()
 
-    supabase.storage.from_("organization-logos").upload(
-        path=file_path,
-        file=file_bytes,
-        file_options={"content-type": file.content_type}
-    )
+    try:
+        file_path, public_url = replace_logo(
+            organization_id=org_id,
+            content_type=file.content_type,
+            content=file_bytes,
+        )
+    except InvalidLogoError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    public_url = supabase.storage.from_("organization-logos").get_public_url(file_path)
-
-    supabase.table("organizations").update({
+    supabase_admin.table("organizations").update({
         "logo_url": public_url
     }).eq("id", org_id).execute()
 

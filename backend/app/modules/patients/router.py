@@ -12,6 +12,12 @@ from app.core.security import (
     require_patient_access,
     require_permission
     )
+from app.core.storage_access_inventory import PATIENT_AVATARS_BUCKET
+from app.core.storage_upload_validation import (
+    StorageUploadValidationError,
+    validate_image_upload,
+)
+from app.core.supabase_admin import supabase_admin
 from app.core.supabase_client import supabase
 from app.modules.patients.service import (
     build_patient_timeline,
@@ -197,49 +203,30 @@ async def upload_profile_picture(
     if not current_user["is_patient"]:
         raise HTTPException(403, "Only patients allowed")
 
-    if not file.filename:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing filename"
-        )
-
-    file_ext = file.filename.rsplit(".", 1)[-1]
-
-    ALLOWED_EXTENSIONS = {
-        "jpg",
-        "jpeg",
-        "png",
-        "webp"
-    }
-
-    if file_ext.lower() not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid file type"
-        )
-    
-    if not file.content_type.startswith("image/"):
-        raise HTTPException(
-            status_code=400,
-            detail="File must be an image"
-        )
-
-    file_path = f"{current_user['id']}.{file_ext}"
-
     file_bytes = await file.read()
 
     try:
-        supabase.storage.from_("patient-avatars").upload(
+        extension = validate_image_upload(
+            bucket=PATIENT_AVATARS_BUCKET,
+            content_type=file.content_type,
+            content=file_bytes,
+        )
+    except StorageUploadValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    file_path = f"{current_user['id']}/avatar.{extension}"
+
+    try:
+        bucket = supabase_admin.storage.from_(PATIENT_AVATARS_BUCKET)
+        bucket.upload(
             path=file_path,
             file=file_bytes,
             file_options={
                 "content-type": file.content_type,
-                "upsert": True
-                }
+                "upsert": "true",
+            },
         )
-
-        public_url = supabase.storage.from_("patient-avatars").get_public_url(file_path)
-
+        public_url = bucket.get_public_url(file_path)
         update_profile_image(current_user["id"], public_url)
 
         return {

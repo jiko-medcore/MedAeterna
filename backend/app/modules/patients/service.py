@@ -429,7 +429,7 @@ def update_patient_info(patient_id: str, payload: dict):
 # ---- Update Patient Profile Image ----
 def update_profile_image(patient_id: str, image_url: str) -> Dict[str, Any]:
     response = (
-        supabase
+        supabase_admin
         .table("patients")
         .update({"profile_image_url": image_url})
         .eq("id", patient_id)

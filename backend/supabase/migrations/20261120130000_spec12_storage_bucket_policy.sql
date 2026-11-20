@@ -1,0 +1,27 @@
+-- SPEC-12: bucket classification, size/MIME limits, and deny-by-default object access.
+-- Generated from app/core/storage_access_inventory.py.
+-- Public retrieval uses bucket.public; direct client object access is
+-- explicitly denied by RLS because the platform owns the storage ACLs.
+
+-- 1. Install or reconcile every reviewed bucket.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types, updated_at)
+values
+    ('organization-logos', 'organization-logos', true, 2097152, ARRAY['image/jpeg', 'image/png', 'image/webp']::text[], now()),
+    ('patient-avatars', 'patient-avatars', true, 2097152, ARRAY['image/jpeg', 'image/png', 'image/webp']::text[], now()),
+    ('practitioner-photos', 'practitioner-photos', true, 2097152, ARRAY['image/jpeg', 'image/png', 'image/webp']::text[], now())
+on conflict (id) do update
+set name = excluded.name,
+    public = excluded.public,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types,
+    updated_at = now();
+
+-- 2. Explicitly deny direct client object access. The platform owns the
+-- storage table ACLs, so RLS is the application-controlled boundary.
+drop policy if exists "Deny direct client object access" on storage.objects;
+create policy "Deny direct client object access" on storage.objects
+for ALL to anon, authenticated
+using (false) with check (false);
+
+-- 3. Service-role writes bypass RLS and public reads use bucket.public.
+-- Private objects will use signed URLs issued by the trusted backend.
