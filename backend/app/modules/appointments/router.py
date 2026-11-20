@@ -1,11 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.security import (
-    authorize_patient_access,
-    get_current_user,
-    require_practitioner,
+from app.core import security
+from app.core.clinical_authorization import (
+    APPOINTMENT,
+    authorize_clinical_access,
+    authorize_practitioner_schedule_access,
+    authorize_table_access,
+    practitioner_actor_id,
+    require_patient_clinical,
 )
-from app.core.supabase_admin import supabase_admin
 from app.modules.appointments.schemas import AppointmentCreate, AppointmentUpdate
 from app.modules.appointments.service import (
     create_appointment,
@@ -21,59 +24,82 @@ router = APIRouter(prefix="/appointments", tags=["Appointments"])
 @router.post("/")
 def create_new_appointment(
     payload: AppointmentCreate,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(security.get_current_user),
 ):
-    authorize_patient_access(
+    practitioner_id = practitioner_actor_id(current_user)
+    if payload.practitioner_id and str(payload.practitioner_id) != practitioner_id:
+        raise HTTPException(
+            status_code=403, detail="Appointments may only be created for the acting practitioner"
+        )
+
+    context = authorize_clinical_access(
         current_user,
-        str(payload.patient_id),
-        organization_id=str(payload.organization_id) if payload.organization_id else None,
+        resource=APPOINTMENT,
+        action="create",
+        patient_id=str(payload.patient_id),
+        organization_id=str(payload.organization_id),
+        verified_conditions={"authorized_appointment_workflow"},
     )
-    return create_appointment(payload=payload, created_by=current_user["id"])
+    payload = payload.model_copy(update={"practitioner_id": practitioner_id})
+    return create_appointment(
+        payload=payload,
+        created_by=current_user["id"],
+        authorized_context=context,
+    )
 
 
 @router.get("/patient/{patient_id}")
 def get_appointments(
     patient_id: str,
-    current_user: dict = Depends(get_current_user),
+    context: dict = Depends(require_patient_clinical(APPOINTMENT, "read")),
 ):
-    authorize_patient_access(current_user, str(patient_id))
-    return get_patient_appointments(patient_id)
+    return get_patient_appointments(patient_id, authorized_context=context)
 
 
 @router.get("/practitioner/{practitioner_id}")
 def request_practitioner_appointments(
     practitioner_id: str,
-    current_user: dict = Depends(get_current_user),
-    practitioner: dict = Depends(require_practitioner),
+    organization_id: str | None = None,
+    current_user: dict = Depends(security.get_current_user),
+    practitioner: dict = Depends(security.require_practitioner),
 ):
-    # Practitioners may only view their own schedule unless broader admin policy
-    # is explicitly implemented elsewhere.
-    if str(practitioner.get("id")) != str(practitioner_id):
+    org_ids = list(current_user.get("organization_ids") or [])
+    resolved_org = str(organization_id) if organization_id else (
+        org_ids[0] if len(org_ids) == 1 else None
+    )
+    if resolved_org and resolved_org not in {str(org) for org in org_ids}:
         raise HTTPException(status_code=403, detail="Access denied")
-    return get_practitioner_appointments(practitioner_id)
+    context = authorize_practitioner_schedule_access(
+        current_user,
+        practitioner_id=str(practitioner["id"]),
+        organization_id=resolved_org,
+    )
+    return get_practitioner_appointments(
+        practitioner_id, authorized_context=context
+    )
 
 
 @router.patch("/{appointment_id}")
 def update_patient_appointment(
     appointment_id: str,
     payload: AppointmentUpdate,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(security.get_current_user),
 ):
-    appointment = (
-        supabase_admin.table("appointments")
-        .select("id, patient_id, organization_id")
-        .eq("id", appointment_id)
-        .limit(1)
-        .execute()
-    )
-    rows = appointment.data or []
-    if not rows:
-        raise HTTPException(status_code=404, detail="Appointment not found")
-
-    row = rows[0]
-    authorize_patient_access(
+    context = authorize_table_access(
         current_user,
-        str(row["patient_id"]),
-        organization_id=str(row.get("organization_id") or "") or None,
+        "appointments",
+        appointment_id,
+        "update",
+        verified_conditions={"authorized_appointment_workflow"},
     )
-    return update_appointment(appointment_id=appointment_id, payload=payload)
+    current_practitioner = context["resource_row"].get("practitioner_id")
+    if payload.practitioner_id and str(payload.practitioner_id) != str(current_practitioner):
+        raise HTTPException(
+            status_code=403,
+            detail="Practitioner reassignment requires an authorized workflow",
+        )
+    return update_appointment(
+        appointment_id=appointment_id,
+        payload=payload,
+        authorized_context=context,
+    )

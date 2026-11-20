@@ -38,6 +38,7 @@ class CareTeamParticipantUpdate(BaseModel):
 class CareTeamAssign(BaseModel):
     patient_id: str
     organization_id: str
+    practitioner_id: Optional[str] = None
     role: str
     notes: Optional[str] = None 
     start_date: Optional[datetime] = None

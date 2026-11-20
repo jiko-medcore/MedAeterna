@@ -775,3 +775,31 @@ def require_patient_access_manual(patient_id: str, user_id: str) -> bool:
     user = {"id": str(user_id), "roles": roles}
     authorize_patient_access(user, str(patient_id))
     return True
+
+
+# --- Trusted resource/relationship helpers used by clinical authorization ---
+# These are thin public aliases for the private lookups above. They keep the
+# service-role fetch in one module so callers do not duplicate query logic.
+
+def fetch_resource(table: str, columns: str, **filters: Any) -> dict[str, Any] | None:
+    """Fetch one resource row for authorization context (never for display)."""
+    return _fetch_single(table, columns, **filters)
+
+
+def resolve_practitioner_id(user_id: str) -> str | None:
+    """Resolve an authenticated user to a verified practitioner identity."""
+    return _resolve_practitioner_id(str(user_id))
+
+
+def active_care_team_access(
+    patient_id: str, practitioner_id: str, organization_id: str | None
+) -> bool:
+    """Check an active, organization-bound care-team treatment relationship."""
+    return _active_care_team_access(str(patient_id), str(practitioner_id), organization_id)
+
+
+def active_consent_access(
+    patient_id: str, practitioner_id: str | None, organization_id: str | None
+) -> bool:
+    """Check an active, in-scope consent record for the given recipient."""
+    return _active_consent_access(str(patient_id), practitioner_id, organization_id)

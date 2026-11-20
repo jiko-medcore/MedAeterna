@@ -1,13 +1,24 @@
 from fastapi import HTTPException
+from app.core.clinical_authorization import CLINICAL_RECORD, ensure_authorized_context
 from app.core.supabase_admin import supabase_admin
 
 
 # ----- Create Observation Service -----
 def create_observation(
     payload,
-    created_by: str
+    created_by: str,
+    *,
+    authorized_context: dict,
 ):
-    
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="create",
+        patient_id=str(payload.patient_id),
+        organization_id=str(payload.organization_id),
+    )
+    validate_encounter(payload.encounter_id, payload.patient_id)
+
     if not payload.patient_id:
         raise HTTPException(400, "patient_id required")
 
@@ -46,8 +57,16 @@ def create_observation(
 
 # ----- Get Patient Observations Service -----
 def get_patient_observations(
-    patient_id: str
+    patient_id: str,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
 
     response = (
         supabase_admin
@@ -73,8 +92,16 @@ def get_patient_observations(
 
 # ---- Get Encounter Observation Service -----
 def get_encounter_observations(
-    encounter_id: str
+    encounter_id: str,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="read",
+        resource_id=str(encounter_id),
+    )
 
     response = (
         supabase_admin
@@ -94,8 +121,16 @@ def get_encounter_observations(
 # ---- Update Observatiom Service -----
 def update_observation(
     observation_id: str,
-    payload
+    payload,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="update",
+        resource_id=str(observation_id),
+    )
 
     update_data = payload.model_dump(
         exclude_unset=True

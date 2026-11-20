@@ -98,3 +98,13 @@ These are policy unit tests. Route-level allow/deny tests, live RLS/grant tests,
 - SPEC-06 defines the canonical explicit grant schema and migration path; implementation remains pending.
 - SPEC-08 prohibits system-administrator access and break-glass in the current Phase 0 policy. A future clinical emergency workflow would require a separate approved specification.
 - Remediation integrates the evaluator or equivalent central policy into every protected route and tests privileged backend queries, RLS, and grants.
+
+### PH0-WP-01 implementation progress (20 November 2026, local, unmerged)
+
+On `security/phase-0-db-storage-release` @ `421d28a` (not pushed), `backend/app/core/security.py` implemented a canonical, trusted server-side `authorize_patient_access`/`require_patient_access` path that resolves target patient and organization context, fails closed on missing/ambiguous evidence, enforces patient self-access boundaries, denies system-administrator patient-data access, and evaluates practitioner relationship evidence from available trusted sources (active care-team/consent records in organization context with legacy assignment fallback only when organization context is absent), consistent with current schema-drift constraints. Touched clinical/care-team/record/consent/dashboard routes were migrated to require this resource-derived authorization. This does not complete relationship-source reconciliation, `patient_access_grants` migration/service integration, SPEC-05 consent enforcement, integration into every protected route/service, or live RLS/grant/route-runtime verification.
+
+### PH0-WP-02 implementation progress (20 November 2026, local, unmerged)
+
+`backend/app/core/clinical_authorization.py` uses the canonical relationship path after resolving patient/organization/encounter/appointment/care-team context from stored resources. Encounter-scoped medication, observation and condition reads now resolve the relationship target from the encounter row before any service query. Practitioner appointment-list access requires the authenticated practitioner identity and exact organization context; care-team reads require an active care-team membership for practitioners or exact-organization care authority for organization administrators.
+
+Relationship-source reconciliation, `patient_access_grants` integration, full SPEC-05 consent evaluation, legacy-source removal, and live RLS/grant/route-runtime verification remain open. See the [PH0-WP-02 completion record](PH0-WP-02-completion-record.md) for the positive/negative evidence recorded for these six routers.

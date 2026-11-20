@@ -1,6 +1,6 @@
 # SPEC-09: Operational-Event Visibility and Retry
 
-**Status:** Event visibility and manual-retry policy are defined in a reference evaluator, with safe metadata projection, scoped reads, retry gates, and event-log redaction tests. Existing route and database enforcement remain remediation work.
+**Status:** Event visibility and manual-retry policy are defined in a reference evaluator, with safe metadata projection, scoped reads, retry gates, and event-log redaction tests. Initial admin-route enforcement and unsafe legacy-route disablement were implemented on `security/phase-0-db-storage-release` @ `421d28a` (20 November 2026, local, unmerged); trusted organization resolution, full replay atomicity/handler-safety enforcement, route-level integration tests, grants/RLS, and hosted/effective-access verification remain remediation work.
 
 ## Decision
 
@@ -64,17 +64,28 @@ The SPEC-09 change removes credential-prefix and aggregate/event identifier logg
 
 ## Current implementation findings
 
-Read-only source review found:
+Read-only source review (baseline) found:
 
 - `backend/app/core/events/monitoring.py` uses `select('*')` for event and dead-letter lists/details. This can return payloads, raw error text, and aggregate identifiers.
-- `backend/app/core/events/router.py` exposes read and retry endpoints without authentication dependencies, including `POST /events/retry-failed` (bulk retry). This is an existing SEC-09 implementation gap.
-- `backend/app/api/admin/events_router.py` uses `get_current_user` but has no demonstrated role/purpose gate and returns monitoring-service output. `backend/app/api/admin/event_replay_router.py` similarly depends only on current-user authentication.
+- `backend/app/core/events/router.py` exposed read and retry endpoints without authentication dependencies, including `POST /events/retry-failed` (bulk retry).
+- `backend/app/api/admin/events_router.py` used `get_current_user` but had no demonstrated role/purpose gate and returned monitoring-service output. `backend/app/api/admin/event_replay_router.py` similarly depended only on current-user authentication.
 - `EventService.retry_event` sets any matching event back to pending without a status predicate or audit record. `backend/app/core/events/replay.py` checks replay state and inserts/marks replay in separate operations; that transition is also not atomic. Its audit call does not include a required reason or all state details from this SPEC.
 - The checked-in migration snapshot enables RLS on `events` and `events_dead_letter` but grants broad table operations to `anon` and `authenticated`. This is source evidence, not verification of effective hosted grants or runtime exposure.
 - Event rows do not contain a normalized `organization_id` column. Organization-scoped access needs a trusted owner resolver or a reviewed schema migration; do not scope from client input or a raw payload alone.
 - The event registry and event types require a reviewed retry-safety mapping before any event type can be manually retried.
 
-The new reference policy and log sanitization do not claim the existing routes, event queries, grants, RLS, audit writes, or retry transactions are fixed. No local or hosted database schema or data was changed for this SPEC.
+### PH0-WP-01 branch remediation progress (20 November 2026, local, unmerged)
+
+Implemented on `security/phase-0-db-storage-release` @ `421d28a` (not pushed, no schema/Storage changes):
+
+- **Admin event routes (`backend/app/api/admin/events_router.py`)**: restricted to authenticated system administrators with an approved purpose, bounded pagination/limits, explicit safe metadata projections (no raw payload/raw error text), policy-gated visibility/summary evaluation, and audit-before-access with fail-closed behavior. Dead-letter replay is single-event only, requires approved retry purpose and bounded reason, evaluates retry eligibility via `operational_event_policy`, and performs audit-before-retry with fail-closed behavior; operators receive only an opaque/status-safe queued result.
+- **Duplicate/unsafe surfaces**: `backend/app/api/admin/event_replay_router.py` replay behavior neutralized (consolidated under admin events replay), and legacy unauthenticated `/events/*` operational read/retry/bulk-retry endpoints in `backend/app/core/events/router.py` disabled (404).
+- **Admin audit/metrics (`backend/app/api/admin/audit_router.py`, `backend/app/api/admin/metrics_router.py`)**: hardened to system-admin + approved purpose with safe projections/fail-closed access and audit-before-read for audit access; onboarding event breakdown metrics denied as not a safe SPEC-09 projection.
+- **Logging hygiene**: `backend/app/core/events/dead_letter.py` corrected to avoid unsafe/undefined audit logging and to avoid emitting sensitive details.
+
+**Remaining gaps (not closed):** trusted event-to-organization resolution and normalized `organization_id` are still absent, so organization-administrator scoped event reads are not enabled and admin event APIs remain fail-closed to system-admin safe projections; `backend/app/core/events/monitoring.py` still performs `select('*')` at the data-access layer (route exposure reduced but underlying access/projection is not fully remediated); `replay_dead_event`/service retry transitions are not yet enforced as fully atomic compare-and-set operations per this SPEC and handler retry-safety is not formally registry-mapped; direct DB grants/RLS, effective hosted exposure, and route-level SPEC-09 integration/negative tests remain required evidence.
+
+No local or hosted database schema or data was changed for this work item. The reference policy and branch route hardening do not claim existing event queries, grants, RLS, audit persistence guarantees, or retry transactions are fully fixed.
 
 ## Supabase/database enforcement
 
@@ -105,3 +116,5 @@ Focused command: `.venv/Scripts/python.exe -m pytest tests/core/test_operational
 Security-policy regression command: `.venv/Scripts/python.exe -m pytest tests/core/test_operational_event_policy.py tests/core/test_event_logging.py tests/core/test_action_authorization.py tests/core/test_role_catalogue.py tests/core/test_system_admin_patient_access.py tests/core/test_organization_admin_patient_access.py tests/core/test_patient_relationship_policy.py tests/core/test_consent_policy.py tests/core/test_patient_access_grants_schema.py -q --tb=short -p no:cacheprovider` (run from `backend/`). Result: **373 passed**. Both runs reported 12 dependency deprecation warnings from installed `pyiceberg`/Pydantic packages; no tests failed.
 
 `git diff --check` is clean. Tests verify the pure policy and log output only. Route authentication/authorization, actual query projection, organization resolver, grants/RLS, persistent audit, and transactional retry tests remain required remediation evidence before SEC-09 can be closed.
+
+**PH0-WP-01 branch verification (20 November 2026, local, unmerged, commit `421d28a`, not independently rerun for this document update):** focused `.venv\Scripts\python.exe -m pytest tests/core/test_security_phase0_wp01.py tests/core/test_event_logging.py tests/core/test_operational_event_policy.py tests/core/test_action_authorization.py tests/organizations/test_router.py -q --tb=short` → **86 passed**; focused role-assignment regression `.venv\Scripts\python.exe -m pytest tests/auth/test_role_assignment_policy.py tests/auth/test_role_assignment_service.py -q --tb=short` → **15 passed**; OpenAPI generation `from main import app; app.openapi()` → **ok**; full backend suite `.venv\Scripts\python.exe -m pytest -q --tb=short` → **1,281 passed, 1 skipped, 18 warnings**. These runs provide supporting regression evidence for the branch hardening but do not substitute for route-level SPEC-09 integration tests, database/grant/RLS verification, or hosted/staging effective-access evidence.

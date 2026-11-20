@@ -1,4 +1,5 @@
 from fastapi import HTTPException
+from app.core.clinical_authorization import CLINICAL_RECORD, ensure_authorized_context
 from app.core.supabase_admin import supabase_admin
 
 
@@ -34,8 +35,17 @@ def validate_encounter(
 # ----- Create Observation Service -----
 def create_condition(
     payload,
-    created_by: str
+    created_by: str,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="create",
+        patient_id=str(payload.patient_id),
+        organization_id=str(payload.organization_id),
+    )
 
     validate_encounter(
         payload.encounter_id,
@@ -80,8 +90,16 @@ def create_condition(
 
 # ----- Get Patient Condition Service -----
 def get_patient_conditions(
-    patient_id: str
+    patient_id: str,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
 
     response = (
         supabase_admin
@@ -107,8 +125,16 @@ def get_patient_conditions(
 
 #  ---- Get Encounter Condition Service -----
 def get_encounter_conditions(
-    encounter_id: str
+    encounter_id: str,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="read",
+        resource_id=str(encounter_id),
+    )
 
     response = (
         supabase_admin
@@ -124,8 +150,16 @@ def get_encounter_conditions(
 # ----- Update Existing Condition Service -----
 def update_condition(
     condition_id: str,
-    payload
+    payload,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="update",
+        resource_id=str(condition_id),
+    )
 
     update_data = payload.model_dump(
         exclude_unset=True

@@ -64,8 +64,8 @@ A stage must not be inferred from an earlier stage.
 | Architecture | FastAPI modular monolith, Supabase/PostgreSQL, centralized authn/authz direction retained | Established |
 | Role catalogue | Scoped role categories and deterministic multi-role context improved | Partially implemented |
 | Role assignment lifecycle | Lifecycle controls and audit model implemented; local/production ACL state differs | Partial |
-| Action-level authorization | Matrix and reference evaluator documented; route adoption incomplete | Partial |
-| Patient relationship access | Policy/evaluator exists; duplicate dependency and route enforcement remain | Blocked |
+| Action-level authorization | Matrix and reference evaluator documented; adopted across six clinical routers under PH0-WP-02, other routes remain incomplete | Partial |
+| Patient relationship access | Canonical resource-derived helper used by six clinical routers; relationship-source reconciliation, full consent and remaining routes still open | Partial |
 | Consent | Policy defined; schema/provenance/lifecycle enforcement incomplete | Blocked |
 | Patient-access grants | Canonical table selected; migration not yet implemented | Not implemented |
 | Organization/system admin boundaries | Policy defined; runtime adoption incomplete | Partial |
@@ -73,7 +73,7 @@ A stage must not be inferred from an earlier stage.
 | Caller-scoped database access | Execution modes and reference gate documented; call-site migration incomplete | Blocked |
 | RLS and grants | SPEC-11 local migration/catalog evidence recorded for 26 tables | Locally verified; hosted pending |
 | Storage | SPEC-12 local catalog/API/test evidence recorded for 3 image buckets | Locally verified; hosted pending |
-| Audit | Append-only database controls improved; application-level audit completeness remains | Partial |
+| Audit | Append-only database controls improved; care-team mutations now emit application audit records, broader completeness remains | Partial |
 | Backend tests | Large local regression results recorded; CI not yet a required check | Partial |
 | Staging/production | Latest RLS/storage changes not verified against hosted environment | Not verified |
 | Phase 0 acceptance | Critical runtime and hosted evidence gaps remain | NOT ACCEPTED |
@@ -170,19 +170,19 @@ The original finding IDs are retained for audit continuity. Status below reflect
 | SEC-01 | Ambiguous/non-deterministic role selection for multi-role users | High | Partially mitigated in role context | Route/service tests for organization-scoped decisions |
 | SEC-02 | Inconsistent organization-admin recognition | High | Partially mitigated by role catalogue | Verify every admin dependency and route |
 | SEC-03 | Organization context not consistently enforced | High | Open | Resource-derived context and cross-org tests |
-| SEC-04 | `require_permission()` assumes `org_id` in URL path | Critical | Open; visible in current source | Correct contract, call-site migration and tests |
-| SEC-05 | Duplicate/incompatible `require_patient_access()` definitions | Critical | Open; two definitions visible in current source | One canonical dependency, all callers migrated and tested |
+| SEC-04 | `require_permission()` assumes `org_id` in URL path | Critical | Partially mitigated on branch (unmerged `421d28a`): contract now requires explicit or safely resource-derived trusted org context with org-scoped permission evaluation/fail-closed behavior; full call-site audit and hosted proof pending | Correct contract, complete call-site migration, trusted execution-mode justification and tests |
+| SEC-05 | Duplicate/incompatible `require_patient_access()` definitions | Critical | Partially mitigated on branch (unmerged `421d28a`): consolidated to one canonical resource-derived/fail-closed contract with compatibility wrappers and migrated identified callers; full caller/route proof pending | One canonical dependency, all callers migrated and tested in staging/runtime |
 | SEC-06 | `patient_access` vs `patient_access_grants` mismatch | High | Canonical table selected; migration outstanding | Migration, service integration and lifecycle tests |
-| SEC-07 | Permission lookup may not use caller JWT/RLS context | High | Open; current helper uses global `supabase` client | Explicit execution mode and identity propagation tests |
-| SEC-08 | Medication requests by encounter unauthenticated | Critical | Open; route still lacks dependency | Authn + encounter resolution + patient/org authorization |
-| SEC-09 | Administrative event access/retry insufficiently protected | Critical | Partially mitigated: authentication present | Role-specific visibility/retry policy and audit tests |
+| SEC-07 | Permission lookup may not use caller JWT/RLS context | High | Open/partial on branch: permission lookup remains a trusted backend (service-role/admin) operation but is now org-scoped and gated by explicit authorization checks in touched paths; caller-scoped RLS propagation/execution-mode inventory not complete | Explicit execution mode per operation, service-role justification, identity propagation/caller-RLS where required, and tests |
+| SEC-08 | Medication requests by encounter unauthenticated | Critical | Locally mitigated: encounter->patient/org resolution and SPEC-03/04 authorization run before the service query; route-level negative tests prove no service call on denial; staging/runtime evidence pending | Authn + encounter resolution + patient/org authorization verified in staging/runtime |
+| SEC-09 | Administrative event access/retry insufficiently protected | Critical | Partially mitigated on branch (unmerged `421d28a`): admin event/audit/metrics routes hardened with role/purpose gates, safe projections, audited/fail-closed single-event retry, and unsafe legacy surfaces disabled; trusted org resolver, atomic replay/handler-safety, grants/RLS and route-level/hosted proof pending | Role-specific visibility/retry policy, safe projections, audit, grants/RLS and route/runtime tests |
 | SEC-10 | Unrestricted authenticated role-assignment path | Critical | Local lifecycle/ACL remediation recorded; production follow-up pending | Verify effective production policy/grants and negative Data API tests |
-| SEC-11 | Encounter ownership/resource authorization gaps | Critical | Open/partial | Route/service tests for create/read/update and cross-patient/org |
-| SEC-12 | Care-team assignment authority gaps | Critical | Open/partial | Authorized actor, target relationship, scope and audit tests |
+| SEC-11 | Encounter ownership/resource authorization gaps | Critical | Partially mitigated locally: create validates appointment->patient/org, read/update resolve patient/org from stored encounter, and service functions require matching authorization context; hosted/runtime proof pending | Route/service tests for create/read/update and cross-patient/org in staging |
+| SEC-12 | Care-team assignment authority gaps | Critical | Partially mitigated locally: organization-admin scoped writes, active-organization practitioner targets, self-assignment denial and audited writes; hosted/runtime proof pending | Authorized actor, target relationship, scope and audit tests in staging |
 | SEC-13 | Practitioner-role administration gaps | Critical | Lifecycle controls improved; route adoption needs verification | Organization/system delegation tests and direct-write denial |
-| SEC-14 | Practitioner appointment retrieval disclosure | Critical | Open | Caller ownership/assignment and cross-practitioner tests |
-| SEC-15 | Appointment create/update trusts client-supplied IDs/fields | High | Open | Relationship validation, field allowlist and transition tests |
-| SEC-16 | Encounter-scoped observation/condition retrieval lacks patient access proof | High | Open | Shared access dependency at every route/service |
+| SEC-14 | Practitioner appointment retrieval disclosure | Critical | Partially mitigated locally: self-only schedule routes require an active practitioner profile, exact organization context and SPEC-03 read decision; cross-practitioner denial covered by focused tests | Caller ownership/assignment and cross-practitioner tests in staging |
+| SEC-15 | Appointment create/update trusts client-supplied IDs/fields | High | Partially mitigated locally: create binds practitioner to the authenticated actor, update resolves patient/org from stored appointment and forbids practitioner reassignment; status-transition rules remain incomplete | Relationship validation, field allowlist and transition tests |
+| SEC-16 | Encounter-scoped observation/condition retrieval lacks patient access proof | High | Partially mitigated locally: shared clinical authorization contract applied to all encounter-scoped reads/writes, encounter linkage validated before writes, and service boundary checks added; hosted/runtime proof pending | Shared access dependency at every route/service and runtime tests |
 | SEC-17 | Incomplete RLS policy coverage | High | Local SPEC-11 inventory covers 26 tables; clinical relations missing from reviewed catalog | Reconcile all application relations and hosted schema |
 | SEC-18 | Organization-level RLS isolation not demonstrated | High | Partial local model; hosted/effective proof pending | Cross-organization tests under real DB roles |
 | SEC-19 | Consent grants insufficiently validate patient/org/practitioner context | High | Policy defined; implementation incomplete | Schema, lifecycle, provenance and negative tests |
@@ -201,7 +201,11 @@ The review of `1aff95b0ab7e15733a72d440ee6cbcf323d5e8ad` confirms the following 
 - `backend/app/modules/medications/router.py` still exposes `GET /encounter/{encounter_id}` without `Depends(get_current_user)` or a patient-access check.
 - `backend/app/api/admin/events_router.py` applies `get_current_user` but passes any authenticated user through to event read/replay functions without SPEC-09 role checks.
 
-These are source observations, not claims that an exploit has been executed. The required tests must demonstrate the actual request behavior and ensure privileged database functions are not called before authorization.
+These are source observations for the audited baseline commit, not claims that an exploit has been executed. The required tests must demonstrate the actual request behavior and ensure privileged database functions are not called before authorization.
+
+**PH0-WP-01 progress (branch, unmerged):** on `security/phase-0-db-storage-release` @ `421d28a` (20 November 2026, local only), `backend/app/core/security.py` was consolidated to canonical resource-derived/fail-closed patient-access and encounter-access contracts (with compatibility wrappers), permission checks now require explicit or safely derived trusted organization context and org-scoped permission evaluation (`get_user_permissions`/`authorize_permission`/`require_permission`), medication-request encounter retrieval and several sensitive clinical reads/writes were migrated to authenticated resource authorization, and admin event/audit/metrics routes were hardened with SPEC-09 role/purpose gates, safe projections, and audited/fail-closed single-event retry handling (duplicate replay surface neutralized; legacy unauthenticated `/events/*` operational routes disabled). Focused/local verification for this slice: 86 passed (security/event/action/org-router), 15 passed (role-assignment policy/service), OpenAPI generation OK, and full backend suite 1,281 passed, 1 skipped (Windows venv, backend/). These changes do not close SEC-04/05/07/08/09/11/12/16: caller-scoped RLS is not propagated across existing query call sites, admin event org-scoped visibility remains constrained without trusted event-to-organization resolution, schema drift/canonical grant cutovers remain unresolved, and staging/hosted/effective-access evidence is still required.
+
+**PH0-WP-02 progress (branch, local working tree; [completion record](PH0-WP-02-completion-record.md)):** `backend/app/core/clinical_authorization.py` adds one contract that combines SPEC-04 relationship evidence loaded from stored resources with SPEC-03 role/action evaluation. All 24 endpoints in the medication, encounter, appointment, observation, condition and care-team routers now pass through this contract: patients are read-only on clinical records/appointments/care teams, practitioner clinical access requires an active organization-bound relationship, encounter-scoped medication/observation/condition reads resolve patient and organization from the stored encounter before any service query, appointment lists are self-only and practitioner-assignment-bound, encounter linkage is validated before observation/condition/medication writes, and care-team creation/mutation/assignment is organization-admin-scoped with active-organization practitioner targets, self-assignment denial and attributable audit records. Service functions now require the authorization context returned by the route and fail closed on patient/organization/resource/action mismatch (`ensure_authorized_context`), so a direct service call cannot silently inherit route authorization. Focused/local verification: 17 new tests (`tests/core/test_security_phase0_wp02.py`, including unauthenticated/denied medication-request encounter retrieval and cross-patient/cross-practitioner route denials proving no service call), full backend suite 1,298 passed and 1 skipped, OpenAPI generation OK (81 paths). This is local implementation and unit/route-level verification only: hosted RLS/grants, purpose-specific consent enforcement (SPEC-19), complete status-transition/field-level workflow rules for every resource, audit completeness outside care-team writes, and staging/promotion evidence remain open. SEC-08, SEC-11, SEC-12, SEC-14, SEC-15 and SEC-16 are partially mitigated locally, not closed.
 
 ---
 
@@ -226,7 +230,7 @@ The initial lifecycle migration was reported applied to production. A later leas
 
 ## 4.2 Policy specifications
 
-Twelve documents exist under `docs/security/`:
+Twelve SPEC documents exist under `docs/security/`:
 
 1. `SPEC-01-role-catalogue-and-scopes.md`
 2. `SPEC-02-role-assignment-lifecycle-and-delegation.md`
@@ -235,7 +239,7 @@ Twelve documents exist under `docs/security/`:
 5. `SPEC-05-consent-evaluation-policy.md`
 6. `SPEC-06-canonical-patient-access-grants.md`
 7. `SPEC-07-organization-admin-patient-data-boundary.md`
-8. `SPEC-08-system-admin-patient-data-and-break-glass-boundary.md`
+8. `SPEC-08-system-admin-patient-data-and-break-glass.md`
 9. `SPEC-09-operational-event-visibility-and-retry.md`
 10. `SPEC-10-trusted-backend-and-caller-rls-access.md`
 11. `SPEC-11-table-level-rls-and-grants.md`
@@ -339,6 +343,8 @@ Cover:
 - Audit every sensitive assignment, mutation and retry.
 
 **Exit criteria:** every sensitive route has an authorization map; service/domain boundary prevents unguarded privileged repository calls; positive/negative cross-patient and cross-organization tests pass.
+
+**Local status:** the six clinical routers listed in the [PH0-WP-02 completion record](PH0-WP-02-completion-record.md) have a resource-derived authorization map, a service-boundary context check, and focused positive/negative tests. Practitioner-role administration, consent routes, full workflow rules, hosted RLS/grants and staging evidence remain open, so this exit criterion is only partially satisfied.
 
 ## Phase 0C — Canonical access grants, consent and database security (P1)
 
@@ -462,8 +468,8 @@ This resolves the previous collision where policy SPEC-02 and GitHub issue #35 b
 
 | Work package / issue | Main scope | Current state |
 |---|---|---|
-| PH0-WP-01 / #34 | Authn, role resolution, authorization primitives, medication/events entry points | Open — P0 blockers remain |
-| PH0-WP-02 / #35 | Clinical resources, relationships, appointments, consent enforcement | Open — route adoption remains |
+| PH0-WP-01 / #34 | Authn, role resolution, authorization primitives, medication/events entry points | **In progress (branch)** — core contracts/caller migration and admin/event hardening landed locally on `security/phase-0-db-storage-release` @ `421d28a` (unmerged, not pushed); hosted/staging proof, full caller-scoped RLS migration, schema-drift cutovers and remaining route audit still required before closure |
+| PH0-WP-02 / #35 | Clinical resources, relationships, appointments, consent enforcement | **Local implementation complete for the selected six clinical routers, not closed** — [completion record](PH0-WP-02-completion-record.md); one resource-derived role/action contract, service-boundary checks and 17 focused tests; consent lifecycle/workflow completeness, remaining WP-02 subscopes and hosted/staging evidence still open |
 | PH0-WP-03 / #36 | RLS, grants, functions, table inventory | Open — local work done; clinical coverage/hosted proof pending |
 | Phase 0 index / #37 | Overall acceptance and links | Open — NOT ACCEPTED |
 | Storage / #3 | Avatar/image uploads and object access | Open — local SPEC-12 progress; hosted/privacy verification pending |
