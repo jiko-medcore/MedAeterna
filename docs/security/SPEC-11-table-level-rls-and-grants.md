@@ -89,7 +89,7 @@ These relations are committed to by earlier SPECs/findings but are absent from t
 ## Files
 
 - Reference model: `backend/app/core/table_access_inventory.py`
-- Migration: `backend/supabase/migrations/20261120120000_spec11_table_rls_and_grants.sql`
+- Migration: `backend/supabase/migrations/20261120095915_spec11_table_rls_and_grants.sql`
 - Python tests: `backend/tests/core/test_table_access_inventory.py`
 - Catalog tests: `backend/supabase/tests/database/spec11_table_privileges_and_policies.test.sql`
 
@@ -108,7 +108,7 @@ These relations are committed to by earlier SPECs/findings but are absent from t
 
 ## Verification evidence (local, 2026-11-20)
 
-The migration was applied through the Supabase MCP `apply_migration` endpoint. `apply_migration` assigns its own version timestamp, so it is recorded in `supabase_migrations.schema_migrations` as `20261120095915 / spec11_table_rls_and_grants`; the repository filename remains `20261120120000_spec11_table_rls_and_grants.sql`. The applied SQL is byte-for-byte reproducible from `app/core/table_access_inventory.py`.
+The migration was applied through the Supabase MCP `apply_migration` endpoint. `apply_migration` assigns its own version timestamp, so it is recorded in `supabase_migrations.schema_migrations` and the repository migration file as `20261120095915 / spec11_table_rls_and_grants` to reconcile local release history drift. The applied SQL is byte-for-byte reproducible from `app/core/table_access_inventory.py`.
 
 Live catalog checks against the applied database:
 
