@@ -205,7 +205,7 @@ def require_role(required_role: str) -> callable:
 # ---- Get User Permissions -----
 def get_user_permissions(user_id: str) -> set[str]:
     response = (
-        supabase
+        supabase_admin
         .rpc("get_user_permissions", {"uid": user_id})
         .execute()
     )
