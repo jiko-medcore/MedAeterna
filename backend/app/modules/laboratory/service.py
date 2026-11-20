@@ -1,40 +1,42 @@
+from fastapi import HTTPException
+
 from app.core.security import require_patient_access
-from app.core.supabase_client import supabase
+from app.core.supabase_admin import supabase_admin
 
 
-# ----- Fetch Lab Record from Database -----
-def fetch_lab_record(lab_id: str) -> dict:
+def fetch_lab_record(lab_id: str) -> dict | None:
     response = (
-        supabase
-        .table("lab_records")
+        supabase_admin.table("lab_results")
         .select("*")
         .eq("id", lab_id)
-        .single()
+        .limit(1)
         .execute()
     )
-
-    if not response.data:
-        return None
-
-    return response.data
+    rows = response.data or []
+    return rows[0] if rows else None
 
 
-# ----- Build Lab Detail Response -----
 def build_lab_detail(lab_id: str, current_user: dict) -> dict:
-
     lab = fetch_lab_record(lab_id)
+    if not lab:
+        raise HTTPException(status_code=404, detail="Lab result not found")
 
-    require_patient_access(lab["patient_id"], current_user)
+    patient_id = lab.get("patient_id")
+    if not patient_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    require_patient_access(str(patient_id), current_user)
 
+    # Return a conservative, schema-tolerant projection.
     return {
-        "id": lab["id"],
-        "testName": lab["test_name"],
-        "status": lab["status"],
+        "id": lab.get("id"),
+        "patient_id": lab.get("patient_id"),
+        "status": lab.get("status"),
+        "result": lab.get("result") or lab.get("results"),
         "metadata": {
-            "performedDate": lab["performed_date"],
-            "orderingProvider": lab["ordering_provider"],
-            "performingFacility": lab["facility_name"]
+            "performed_date": lab.get("performed_date") or lab.get("created_at"),
+            "ordering_provider": lab.get("ordering_provider") or lab.get("clinician_id"),
+            "facility_name": lab.get("facility_name"),
         },
-        "results": lab["results"],
-        "attachments": lab.get("attachments", [])
+        "raw": lab,
     }
+

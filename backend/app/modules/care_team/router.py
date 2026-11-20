@@ -1,88 +1,118 @@
-from fastapi import APIRouter, Depends
-from app.core.security import get_current_user
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.core.security import authorize_patient_access, get_current_user, require_practitioner
+from app.core.supabase_admin import supabase_admin
 from app.modules.care_team.schemas import (
+    CareTeamAssign,
     CareTeamCreate,
     CareTeamParticipantAdd,
     CareTeamParticipantUpdate,
-    CareTeamAssign
 )
 from app.modules.care_team.service import (
-    create_care_team,
     add_care_team_participant,
+    assign_care_team,
+    create_care_team,
     get_patient_care_teams,
     update_care_team_participant,
-    assign_care_team
 )
 
 
-router = APIRouter(
-    prefix="/care-teams",
-    tags=["Care Teams"]
-)
+router = APIRouter(prefix="/care-teams", tags=["Care Teams"])
 
 
-
-# ----- Create Care Team endpoint -----
 @router.post("/")
 def create_team(
     payload: CareTeamCreate,
-    user=Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    _practitioner: dict = Depends(require_practitioner),
 ):
-
-    return create_care_team(
-        payload
+    authorize_patient_access(
+        current_user,
+        str(payload.patient_id),
+        organization_id=str(payload.organization_id) if payload.organization_id else None,
     )
+    return create_care_team(payload)
 
 
-# ----- Add Care Team Participants endpoint -----
 @router.post("/{care_team_id}/participants")
 def add_participant(
     care_team_id: str,
     payload: CareTeamParticipantAdd,
-    user=Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    _practitioner: dict = Depends(require_practitioner),
 ):
-
-    return add_care_team_participant(
-        care_team_id,
-        payload
+    team_rows = (
+        supabase_admin.table("care_teams")
+        .select("id, patient_id, organization_id")
+        .eq("id", care_team_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
     )
+    if not team_rows:
+        raise HTTPException(status_code=404, detail="Care team not found")
+    team = team_rows[0]
+    authorize_patient_access(
+        current_user,
+        str(team["patient_id"]),
+        organization_id=str(team.get("organization_id") or "") or None,
+    )
+    return add_care_team_participant(care_team_id, payload)
 
 
-# ----- Get Care Team Participants endpoint -----
 @router.get("/patient/{patient_id}")
 def patient_care_teams(
     patient_id: str,
-    user=Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
-
-    return get_patient_care_teams(
-        patient_id
-    )
+    authorize_patient_access(current_user, str(patient_id))
+    return get_patient_care_teams(patient_id)
 
 
-# ----- Update Care Team Participants endpoint -----
 @router.patch("/participants/{participant_id}")
 def update_participant(
     participant_id: str,
     payload: CareTeamParticipantUpdate,
-    user=Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    _practitioner: dict = Depends(require_practitioner),
 ):
-
-    return update_care_team_participant(
-        participant_id,
-        payload
+    rows = (
+        supabase_admin.table("care_team_participants")
+        .select("id, care_team_id, care_teams(patient_id, organization_id)")
+        .eq("id", participant_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
     )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Care team participant not found")
+    team = rows[0].get("care_teams") or {}
+    patient_id = team.get("patient_id")
+    if not patient_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    authorize_patient_access(
+        current_user,
+        str(patient_id),
+        organization_id=str(team.get("organization_id") or "") or None,
+    )
+    return update_care_team_participant(participant_id, payload)
 
 
-# ----- Assign Care Team endpoint -----
 @router.post("/assign")
 def assign_team_member(
     payload: CareTeamAssign,
-    user=Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    practitioner: dict = Depends(require_practitioner),
 ):
-
+    authorize_patient_access(
+        current_user,
+        str(payload.patient_id),
+        organization_id=str(payload.organization_id) if payload.organization_id else None,
+    )
     return assign_care_team(
-        user["id"],
+        str(practitioner.get("id") or current_user["id"]),
         payload,
-        user["id"]
+        current_user["id"],
     )

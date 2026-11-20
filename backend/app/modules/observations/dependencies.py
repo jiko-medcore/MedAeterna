@@ -1,24 +1,16 @@
-from app.core.supabase_admin import supabase_admin
-from app.core.security import get_current_user
-from fastapi import Depends, HTTPException
+"""Compatibility wrappers for legacy observation-module access checks.
 
+Canonical patient-access authorization lives in `app.core.security`.
+"""
 
-# ----- Manual Authorization for Patient Access ----- 
-def require_patient_access_manual(
-    patient_id: str,
-    user_id: str
-):
-    res = (
-        supabase_admin
-        .table("patient_access")
-        .select("id")
-        .eq("patient_id", patient_id)
-        .eq("user_id", user_id)
-        .single()
-        .execute()
-    )
+from app.core.security import (
+    authorize_patient_access,
+    get_current_user,
+    require_patient_access_manual,
+)
 
-    if not res.data:
-        raise HTTPException(403, "No access to this patient")
-
-    return True
+__all__ = [
+    "authorize_patient_access",
+    "get_current_user",
+    "require_patient_access_manual",
+]
