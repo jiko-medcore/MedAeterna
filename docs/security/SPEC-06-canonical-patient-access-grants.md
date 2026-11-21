@@ -2,6 +2,8 @@
 
 **Status:** Canonical explicit patient-grant table and migration path are selected. A Python reference model and lifecycle tests validate the target contract. No database migration has been created or applied in this specification milestone.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. No migration, cutover, legacy-row promotion or treatment-source choice is implied. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Decision
 
 Use **`public.patient_access_grants`** as the sole canonical table for explicit, patient-approved practitioner access grants. Do not use `patient_access` as a compatibility table or view.

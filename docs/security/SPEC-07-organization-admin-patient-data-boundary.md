@@ -2,6 +2,8 @@
 
 **Status:** Administrative data boundary selected and covered by a reference policy. Production routes, database access, and audit integration remain remediation work.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. Undocumented choices remain fail-closed. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Decision
 
 An organization-administrator assignment does not grant access to a patient's full profile, clinical record, consent, or care relationship. The default is deny. A separate, read-only `patient_admin_data` view may return only the fields listed below, for one verified patient and one server-defined administrative purpose within the exact organization.

@@ -2,6 +2,8 @@
 
 **Status:** Execution modes and an authorization reference gate are defined and tested. Import-time credential logging has been removed, and a per-request caller-scoped client pattern is available. PH0-WP-01 (`security/phase-0-db-storage-release` @ `421d28a`, 20 November 2026, local, unmerged) reinforced trusted-backend authorization in several sensitive/admin routes before privileged operations, but existing query call sites have not yet been migrated to caller-scoped RLS or exhaustively inventoried/authorized; those enforcement gaps remain explicit.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. No existing query site is assumed to use caller RLS or complete execution evidence. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Decision
 
 Every database operation must select one execution mode before it builds or executes its query:

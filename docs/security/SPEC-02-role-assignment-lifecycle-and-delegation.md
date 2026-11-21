@@ -2,6 +2,8 @@
 
 **Status:** Lifecycle behavior is implemented. A local least-privilege follow-up has been applied and verified; that follow-up has not been deployed to production.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. Undocumented choices remain fail-closed. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Decisions
 
 ### Lifecycle

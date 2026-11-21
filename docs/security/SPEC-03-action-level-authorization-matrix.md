@@ -2,6 +2,8 @@
 
 **Status:** The role/resource/action decisions and executable reference policy are complete. Route-by-route adoption remains a Phase 0 remediation task and is not claimed by this specification.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. Undocumented choices remain fail-closed. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Purpose and boundaries
 
 SPEC-03 defines what each principal category may do for each resource family. It applies the role categories and scopes from SPEC-01 and the role lifecycle/delegation rules from SPEC-02.

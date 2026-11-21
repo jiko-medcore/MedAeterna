@@ -2,6 +2,8 @@
 
 **Status:** Patient-to-practitioner relationship semantics and an executable reference evaluator are complete. Route-by-route enforcement and database policy verification remain remediation work; this specification does not claim those controls are deployed.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. Undocumented choices remain fail-closed. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Purpose and boundaries
 
 SPEC-04 defines when a practitioner has a relationship to a patient that can satisfy the relationship gate in SPEC-03. It applies to clinical history, encounters, observations, conditions, prescriptions, laboratory results, and clinical documents.

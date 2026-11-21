@@ -2,6 +2,8 @@
 
 **Status:** Implemented as the Phase 0 role classification baseline. This specification classifies assignments into the four authorization categories; it does not define the resource/action authorization matrix.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. Undocumented choices remain fail-closed. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Reconciliation of plan versions
 
 The original plan's four personas, contextual authorization model, modular-monolith constraint, deny-by-default rule, and resource/organization boundaries remain in force. Version 2 clarifies that the original authorization matrix is only partially specified: broad system-administrator entries are conditional on explicit platform purpose and must not imply clinical-care access; organization-administrator clinical access and operational visibility also remain conditional or pending. Accordingly, a role category in this SPEC-01 catalogue identifies the kind of assignment only. It does not turn the original matrix's `authorized` wording into blanket permission, nor resolve the decisions that v2 lists as SPEC-02 through SPEC-12. Pending rules remain denied.

@@ -2,6 +2,8 @@
 
 **Status:** Event visibility and manual-retry policy are defined in a reference evaluator, with safe metadata projection, scoped reads, retry gates, and event-log redaction tests. Initial admin-route enforcement landed on `security/phase-0-db-storage-release` @ `421d28a`; PH0-WP-05 then added data-layer projections, retry-safety gating, compare-and-set replay, and route-level integration tests in the same branch in implementation commit `9977b88`, followed by the focused authorization-order negative matrix in commit `3901101` (21 November 2026, local, committed, not pushed). Trusted organization resolution, handler retry-safety approval, full transactional atomicity, persistent/hosted audit evidence, and staging/production effective-access verification remain remediation work. See the [PH0-WP-05 completion record](PH0-WP-05-completion-record.md).
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. Undocumented visibility and retry choices remain fail-closed. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Decision
 
 Operational-event reads and retries are separate permissions. Patients and practitioners have no access to administrative event queues. Organization administrators may read only approved organization-configuration event metadata for their own organization; they cannot retry events. System administrators may read approved global operational metadata and may retry one eligible event at a time, only for an allowlisted purpose and with verified retry authority and audit. Neither role receives event payloads or raw failure text.

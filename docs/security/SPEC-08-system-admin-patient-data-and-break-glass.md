@@ -2,6 +2,8 @@
 
 **Status:** System-administrator patient-data access and break-glass are explicitly prohibited for the current Phase 0 policy. The pure reference guard and policy tests are in place. Existing routes and database enforcement remain remediation work.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. Any future emergency workflow remains out of scope. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Decision
 
 A `super_admin` assignment authorizes defined platform operations only. It does not grant access to patient profiles, administrative patient views, appointments, clinical records, consent, patient grants, care-team data, or patient-linked audit/event payloads.
