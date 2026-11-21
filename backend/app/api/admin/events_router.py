@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.action_authorization import ActionDecision
@@ -8,10 +10,13 @@ from app.core.events.replay import replay_dead_event
 from app.core.operational_event_policy import (
     EVENT_METADATA_FIELDS,
     EVENT_SUMMARY_FIELDS,
+    NORMALIZED_ERROR_CODES,
     PATIENT_EVENT_METADATA_FIELDS,
     evaluate_event_retry,
     evaluate_event_summary_visibility,
     evaluate_event_visibility,
+    is_manual_retry_safe,
+    normalize_event_error_text,
 )
 from app.core.role_catalogue import ORGANIZATION_ADMINISTRATOR, SYSTEM_ADMINISTRATOR
 from app.core.security import get_current_user
@@ -19,6 +24,19 @@ from app.core.supabase_admin import supabase_admin
 
 
 router = APIRouter(prefix="/admin/events", tags=["Event Monitoring"])
+
+# The local event schema has no normalized_error_code column. Select only
+# approved metadata plus raw failure text for server-side normalization; raw
+# text is never returned to the operator and never stored in audit metadata.
+EVENT_METADATA_SELECT = (
+    "id, aggregate_type, event_type, status, created_at, processed_at, "
+    "retry_count, failure_reason, last_error"
+)
+DEAD_LETTER_METADATA_SELECT = (
+    "id, aggregate_type, event_type, retry_count, failed_at, failure_reason"
+)
+READ_PURPOSES = frozenset({"platform_health", "security_incident"})
+RETRY_PURPOSES = frozenset({"event_recovery", "security_incident"})
 
 
 def _is_system_admin(user: dict) -> bool:
@@ -42,20 +60,32 @@ def _require_decision(decision: ActionDecision) -> None:
         raise HTTPException(status_code=403, detail="Access denied")
 
 
-def _normalize_error_code(value) -> str | None:
-    if isinstance(value, str) and value:
-        return value
-    return None
+def _normalize_error_code(row: dict) -> str | None:
+    """Return only a fixed code; never return raw failure text."""
+    stored = row.get("normalized_error_code")
+    if isinstance(stored, str) and stored in NORMALIZED_ERROR_CODES:
+        return stored
+    return normalize_event_error_text(row.get("failure_reason") or row.get("last_error"))
+
+
+def _is_patient_event(event_type: str, aggregate_type: str) -> bool:
+    return (
+        aggregate_type == "patient"
+        or event_type.startswith("patient.")
+        or event_type.startswith("onboarding.")
+    )
 
 
 def _project_event_row(row: dict, *, actor_is_system: bool, purpose: str) -> dict | None:
+    """Apply the same role, purpose, redaction and field rules to every row."""
     event_type = str(row.get("event_type") or "")
     aggregate_type = str(row.get("aggregate_type") or "")
     status = str(row.get("status") or "")
-    requested = EVENT_METADATA_FIELDS if actor_is_system else EVENT_METADATA_FIELDS
-    # For system-admin patient/aggregate-patient events, omit event_type and identifiers.
-    if actor_is_system and (aggregate_type == "patient" or event_type.startswith("patient.") or event_type.startswith("onboarding.")):
-        requested = PATIENT_EVENT_METADATA_FIELDS
+    requested = (
+        PATIENT_EVENT_METADATA_FIELDS
+        if _is_patient_event(event_type, aggregate_type)
+        else EVENT_METADATA_FIELDS
+    )
     decision = evaluate_event_visibility(
         actor_roles=[{"category": SYSTEM_ADMINISTRATOR, "organization_id": None}] if actor_is_system else [],
         event_type=event_type,
@@ -68,7 +98,8 @@ def _project_event_row(row: dict, *, actor_is_system: bool, purpose: str) -> dic
         event_visibility_approved=True,
         audit_recorded=True,
     )
-    # For org admin this helper is not used; org admin visibility requires trusted org resolution we cannot provide here.
+    # Org-admin visibility needs a trusted event-to-organization resolver;
+    # until one exists this helper deliberately remains system-admin-only.
     if not decision.allowed:
         return None
     allowed = set(requested)
@@ -83,17 +114,65 @@ def _project_event_row(row: dict, *, actor_is_system: bool, purpose: str) -> dic
         projected["processed_at"] = row.get("processed_at")
     if "retry_count" in allowed:
         projected["retry_count"] = row.get("retry_count", 0)
-    if "normalized_error_code" in allowed:
-        code = _normalize_error_code(row.get("normalized_error_code"))
-        if code:
-            projected["normalized_error_code"] = code
+    code = _normalize_error_code(row)
+    if "normalized_error_code" in allowed and code:
+        projected["normalized_error_code"] = code
     return projected
 
 
-def _require_system_admin_purpose(purpose: str | None) -> str:
-    if not purpose or purpose not in {"platform_health", "security_incident", "event_recovery"}:
-        raise HTTPException(status_code=400, detail="An approved purpose is required")
+def _project_dead_event_row(row: dict, *, purpose: str, roles: list[dict]) -> dict | None:
+    event_type = str(row.get("event_type") or "")
+    aggregate_type = str(row.get("aggregate_type") or "")
+    requested = (
+        PATIENT_EVENT_METADATA_FIELDS
+        if _is_patient_event(event_type, aggregate_type)
+        else EVENT_METADATA_FIELDS
+    )
+    decision = evaluate_event_visibility(
+        actor_roles=roles,
+        event_type=event_type,
+        aggregate_type=aggregate_type,
+        status="dead",
+        requested_fields=requested,
+        purpose=purpose,
+        event_payload_redacted=True,
+        patient_data_redacted=True,
+        event_visibility_approved=True,
+        audit_recorded=True,
+    )
+    if not decision.allowed:
+        return None
+    allowed = set(requested)
+    projected = {
+        "event_reference": str(row.get("id") or ""),
+        "status": "dead",
+        "retry_count": row.get("retry_count", 0),
+    }
+    if "event_type" in allowed:
+        projected["event_type"] = event_type
+    if "created_at" in allowed:
+        projected["created_at"] = row.get("failed_at")
+    code = _normalize_error_code(row)
+    if "normalized_error_code" in allowed and code:
+        projected["normalized_error_code"] = code
+    return projected
+
+
+def _require_read_purpose(purpose: str | None) -> str:
+    if not purpose or purpose not in READ_PURPOSES:
+        raise HTTPException(status_code=400, detail="An approved read purpose is required")
     return purpose
+
+
+def _require_retry_purpose(purpose: str | None) -> str:
+    if not purpose or purpose not in RETRY_PURPOSES:
+        raise HTTPException(status_code=400, detail="An approved retry purpose is required")
+    return purpose
+
+
+def _contains_contact_data(reason: str) -> bool:
+    """Reject obvious patient contact data in a free-text retry reason."""
+    return bool(re.search(r"@|\+?\d(?:[\s().-]?\d){9,}", reason))
 
 
 @router.get("/stats")
@@ -103,9 +182,7 @@ def stats(
 ):
     if not _is_system_admin(current_user):
         _deny()
-    purpose = _require_system_admin_purpose(purpose)
-    if purpose == "event_recovery":
-        purpose = "platform_health"
+    purpose = _require_read_purpose(purpose)
     decision = evaluate_event_summary_visibility(
         actor_roles=current_user.get("roles") or [],
         requested_fields=EVENT_SUMMARY_FIELDS,
@@ -146,9 +223,7 @@ def failed(
 ):
     if not _is_system_admin(current_user):
         _deny()
-    purpose = _require_system_admin_purpose(purpose)
-    if purpose == "event_recovery":
-        purpose = "platform_health"
+    purpose = _require_read_purpose(purpose)
     try:
         log_audit_event(
             actor_id=current_user.get("id"),
@@ -162,7 +237,7 @@ def failed(
         _deny("Audit required", 403)
     rows = (
         supabase_admin.table("events")
-        .select("id, aggregate_type, event_type, status, created_at, processed_at, retry_count, normalized_error_code")
+        .select(EVENT_METADATA_SELECT)
         .eq("status", "failed")
         .order("created_at", desc=True)
         .limit(limit)
@@ -186,9 +261,7 @@ def dead(
 ):
     if not _is_system_admin(current_user):
         _deny()
-    purpose = _require_system_admin_purpose(purpose)
-    if purpose == "event_recovery":
-        purpose = "platform_health"
+    purpose = _require_read_purpose(purpose)
     try:
         log_audit_event(
             actor_id=current_user.get("id"),
@@ -202,7 +275,7 @@ def dead(
         _deny("Audit required", 403)
     rows = (
         supabase_admin.table("events_dead_letter")
-        .select("id, aggregate_type, event_type, retry_count, failed_at, normalized_error_code")
+        .select(DEAD_LETTER_METADATA_SELECT)
         .order("failed_at", desc=True)
         .limit(limit)
         .execute()
@@ -211,32 +284,11 @@ def dead(
     )
     out = []
     for row in rows:
-        event_type = str(row.get("event_type") or "")
-        aggregate_type = str(row.get("aggregate_type") or "")
-        requested = PATIENT_EVENT_METADATA_FIELDS if (aggregate_type == "patient" or event_type.startswith("patient.") or event_type.startswith("onboarding.")) else EVENT_METADATA_FIELDS
-        decision = evaluate_event_visibility(
-            actor_roles=current_user.get("roles") or [],
-            event_type=event_type,
-            aggregate_type=aggregate_type,
-            status="dead",
-            requested_fields=requested,
-            purpose=purpose,
-            event_payload_redacted=True,
-            patient_data_redacted=True,
-            event_visibility_approved=True,
-            audit_recorded=True,
+        projected = _project_dead_event_row(
+            row, purpose=purpose, roles=current_user.get("roles") or []
         )
-        if not decision.allowed:
-            continue
-        item = {"event_reference": str(row.get("id") or ""), "status": "dead", "retry_count": row.get("retry_count", 0)}
-        if "event_type" in requested:
-            item["event_type"] = event_type
-        if "created_at" in requested:
-            item["created_at"] = row.get("failed_at")
-        code = _normalize_error_code(row.get("normalized_error_code"))
-        if code and "normalized_error_code" in requested:
-            item["normalized_error_code"] = code
-        out.append(item)
+        if projected:
+            out.append(projected)
     return out
 
 
@@ -248,9 +300,7 @@ def dead_event_detail(
 ):
     if not _is_system_admin(current_user):
         _deny()
-    purpose = _require_system_admin_purpose(purpose)
-    if purpose == "event_recovery":
-        purpose = "platform_health"
+    purpose = _require_read_purpose(purpose)
     try:
         log_audit_event(
             actor_id=current_user.get("id"),
@@ -264,7 +314,7 @@ def dead_event_detail(
         _deny("Audit required", 403)
     row = (
         supabase_admin.table("events_dead_letter")
-        .select("id, aggregate_type, event_type, retry_count, failed_at, normalized_error_code")
+        .select(DEAD_LETTER_METADATA_SELECT)
         .eq("id", dead_event_id)
         .limit(1)
         .execute()
@@ -273,31 +323,11 @@ def dead_event_detail(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Dead letter event not found")
-    item = row[0]
-    event_type = str(item.get("event_type") or "")
-    aggregate_type = str(item.get("aggregate_type") or "")
-    requested = PATIENT_EVENT_METADATA_FIELDS if (aggregate_type == "patient" or event_type.startswith("patient.") or event_type.startswith("onboarding.")) else EVENT_METADATA_FIELDS
-    decision = evaluate_event_visibility(
-        actor_roles=current_user.get("roles") or [],
-        event_type=event_type,
-        aggregate_type=aggregate_type,
-        status="dead",
-        requested_fields=requested,
-        purpose=purpose,
-        event_payload_redacted=True,
-        patient_data_redacted=True,
-        event_visibility_approved=True,
-        audit_recorded=True,
+    projected = _project_dead_event_row(
+        row[0], purpose=purpose, roles=current_user.get("roles") or []
     )
-    _require_decision(decision)
-    projected = {"event_reference": str(item.get("id") or ""), "status": "dead", "retry_count": item.get("retry_count", 0)}
-    if "event_type" in requested:
-        projected["event_type"] = event_type
-    if "created_at" in requested:
-        projected["created_at"] = item.get("failed_at")
-    code = _normalize_error_code(item.get("normalized_error_code"))
-    if code and "normalized_error_code" in requested:
-        projected["normalized_error_code"] = code
+    if projected is None:
+        _deny()
     return projected
 
 
@@ -310,8 +340,9 @@ def replay_dead(
 ):
     if not _is_system_admin(current_user):
         _deny()
-    if purpose not in {"event_recovery", "security_incident"}:
-        raise HTTPException(status_code=400, detail="An approved retry purpose is required")
+    purpose = _require_retry_purpose(purpose)
+    if _contains_contact_data(reason):
+        raise HTTPException(status_code=400, detail="Retry reason must not contain contact data")
     # Fetch minimal state for policy evaluation without exposing payload.
     row = (
         supabase_admin.table("events_dead_letter")
@@ -334,30 +365,68 @@ def replay_dead(
         reason=reason,
         retry_count=int(item.get("retry_count") or 0),
         handler_registered=str(item.get("event_type") or "") in EVENT_HANDLERS,
-        handler_retry_safe=str(item.get("event_type") or "") in EVENT_HANDLERS,
+        handler_retry_safe=is_manual_retry_safe(
+            str(item.get("event_type") or ""), EVENT_HANDLERS
+        ),
         patient_data_redacted=True,
         event_payload_redacted=True,
         audit_recorded=True,
         already_replayed=bool(item.get("replayed")),
     )
     _require_decision(decision)
-    # Audit before state-changing retry; fail closed if audit cannot be recorded.
+    base_audit = {
+        "purpose": purpose,
+        "reason": reason[:500],
+        "event_type": str(item.get("event_type") or ""),
+        "state_before": "dead",
+        "attempt_count": int(item.get("retry_count") or 0) + 1,
+    }
+    # Record authorization before the state-changing retry; fail closed if the
+    # attempt cannot be audited. A final record captures the actual outcome.
     try:
         log_audit_event(
             actor_id=current_user.get("id"),
             actor_type="system_admin",
-            action=AuditActions.EVENT_REPLAYED,
+            action=AuditActions.EVENT_REPLAY_ATTEMPTED,
             resource_type="event_dead_letter",
             resource_id=str(item.get("id") or ""),
-            metadata={"purpose": purpose, "reason": reason[:500]},
+            metadata={
+                **base_audit,
+                "state_after": "pending_if_claim_succeeds",
+                "outcome": "authorized_cas_claim_attempted",
+            },
         )
     except Exception:
         _deny("Audit required", 403)
+
     try:
         result = replay_dead_event(dead_event_id=dead_event_id, actor_id=current_user["id"])
     except ValueError as exc:
+        log_audit_event(
+            actor_id=current_user.get("id"),
+            actor_type="system_admin",
+            action=AuditActions.EVENT_REPLAY_DENIED,
+            resource_type="event_dead_letter",
+            resource_id=str(item.get("id") or ""),
+            metadata={**base_audit, "state_after": "dead", "outcome": "cas_claim_failed"},
+        )
         raise HTTPException(status_code=409, detail="Replay not permitted") from exc
-    return {"status": "queued", "event_reference": str(result.get("new_event_id") or "")}
+
+    new_event_reference = str(result.get("new_event_id") or "")
+    log_audit_event(
+        actor_id=current_user.get("id"),
+        actor_type="system_admin",
+        action=AuditActions.EVENT_REPLAYED,
+        resource_type="event_dead_letter",
+        resource_id=str(item.get("id") or ""),
+        metadata={
+            **base_audit,
+            "state_after": "pending",
+            "outcome": "queued",
+            "new_event_reference": new_event_reference,
+        },
+    )
+    return {"status": "queued", "event_reference": new_event_reference}
 
 
 @router.get("")
@@ -369,9 +438,7 @@ def list_events(
 ):
     if not _is_system_admin(current_user):
         _deny()
-    purpose = _require_system_admin_purpose(purpose)
-    if purpose == "event_recovery":
-        purpose = "platform_health"
+    purpose = _require_read_purpose(purpose)
     try:
         log_audit_event(
             actor_id=current_user.get("id"),
@@ -385,7 +452,7 @@ def list_events(
         _deny("Audit required", 403)
     query = (
         supabase_admin.table("events")
-        .select("id, aggregate_type, event_type, status, created_at, processed_at, retry_count, normalized_error_code")
+        .select(EVENT_METADATA_SELECT)
         .order("created_at", desc=True)
         .limit(limit)
     )
@@ -408,9 +475,7 @@ def event_detail(
 ):
     if not _is_system_admin(current_user):
         _deny()
-    purpose = _require_system_admin_purpose(purpose)
-    if purpose == "event_recovery":
-        purpose = "platform_health"
+    purpose = _require_read_purpose(purpose)
     try:
         log_audit_event(
             actor_id=current_user.get("id"),
@@ -424,7 +489,7 @@ def event_detail(
         _deny("Audit required", 403)
     row = (
         supabase_admin.table("events")
-        .select("id, aggregate_type, event_type, status, created_at, processed_at, retry_count, normalized_error_code")
+        .select(EVENT_METADATA_SELECT)
         .eq("id", event_id)
         .limit(1)
         .execute()

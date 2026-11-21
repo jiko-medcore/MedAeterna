@@ -127,6 +127,20 @@ NORMALIZED_ERROR_CODES = frozenset(
     }
 )
 
+# SPEC-09 requires a reviewed retry-safety decision per event type before a
+# handler may be manually retried. Registration alone is not proof of
+# idempotency. Keep this empty until each handler is reviewed and approved.
+MANUAL_RETRY_SAFE_EVENT_TYPES: frozenset[str] = frozenset()
+
+
+def is_manual_retry_safe(event_type: str, registered_event_types: Iterable[str]) -> bool:
+    """Only return True for an allowlisted, currently registered handler."""
+    return (
+        isinstance(event_type, str)
+        and event_type in MANUAL_RETRY_SAFE_EVENT_TYPES
+        and event_type in set(registered_event_types)
+    )
+
 
 def normalize_event_error_code(error: BaseException) -> str:
     """Map an exception to a fixed code without preserving its message."""
@@ -140,6 +154,23 @@ def normalize_event_error_code(error: BaseException) -> str:
         return "EVENT_HANDLER_NOT_FOUND"
     if isinstance(error, (ValueError, TypeError)):
         return "INVALID_EVENT"
+    return "PROCESSING_FAILED"
+
+
+def normalize_event_error_text(value: object) -> str | None:
+    """Map stored failure text to a fixed code; never return the raw text."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    folded = value.casefold()
+    if "timeout" in folded or "timed out" in folded:
+        return "DEPENDENCY_TIMEOUT"
+    if "unavailable" in folded or "connection" in folded or "network" in folded:
+        return "DEPENDENCY_UNAVAILABLE"
+    if "handler not found" in folded or "not registered" in folded:
+        return "EVENT_HANDLER_NOT_FOUND"
+    if "invalid event" in folded or "validation" in folded:
+        return "INVALID_EVENT"
+    # Any other stored error is a generic processing failure, never raw text.
     return "PROCESSING_FAILED"
 
 

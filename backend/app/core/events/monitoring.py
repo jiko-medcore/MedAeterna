@@ -1,5 +1,18 @@
+"""Internal operational-event data access.
+
+These helpers use explicit safe metadata projections. Payloads, aggregate
+identifiers and raw failure text are not returned to callers.
+"""
+
 from fastapi import HTTPException
 from app.core.supabase_admin import supabase_admin
+
+EVENT_METADATA_SELECT = (
+    "id, aggregate_type, event_type, status, created_at, processed_at, retry_count"
+)
+DEAD_LETTER_METADATA_SELECT = (
+    "id, aggregate_type, event_type, retry_count, failed_at, replayed, replayed_at"
+)
 
 
 # -----------------------------
@@ -10,7 +23,7 @@ def get_events(status: str | None = None, limit: int = 100):
     query = (
         supabase_admin
         .table("events")
-        .select("*")
+        .select(EVENT_METADATA_SELECT)
         .order("created_at", desc=True)
         .limit(limit)
     )
@@ -29,7 +42,7 @@ def get_event(event_id: str):
     event= (
         supabase_admin
         .table("events")
-        .select("*")
+        .select(EVENT_METADATA_SELECT)
         .eq("id", event_id)
         .single()
         .execute()
@@ -90,7 +103,7 @@ def get_failed_events(limit: int = 100):
     return (
         supabase_admin
         .table("events")
-        .select("*")
+        .select(EVENT_METADATA_SELECT)
         .eq("status", "failed")
         .order("created_at", desc=True)
         .limit(limit)
@@ -107,7 +120,7 @@ def get_dead_letter_events(limit: int = 100):
     return (
         supabase_admin
         .table("events_dead_letter")
-        .select("*")
+        .select(EVENT_METADATA_SELECT)
         .order("failed_at", desc=True)
         .limit(limit)
         .execute()
@@ -125,21 +138,7 @@ def get_dead_letter_event(
     event = (
         supabase_admin
         .table("events_dead_letter")
-        .select(
-            """
-            id,
-            original_event_id,
-            aggregate_type,
-            aggregate_id,
-            event_type,
-            retry_count,
-            failure_reason,
-            failed_at,
-            replayed,
-            replayed_at,
-            replayed_by
-            """
-        )
+        .select(DEAD_LETTER_METADATA_SELECT)
         .eq("id", dead_event_id)
         .single()
         .execute()

@@ -37,6 +37,8 @@ class EventService:
                 "last_attempt_at": None
             })
             .eq("id", event_id)
+            .eq("status", EventStatus.FAILED)
+            .lt("retry_count", 3)
             .execute()
         )
 
