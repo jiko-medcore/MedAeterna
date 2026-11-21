@@ -84,13 +84,13 @@ The Supabase MCP endpoint `http://127.0.0.1:58561/mcp` was used in read-only mod
 
 No policies exist on the two event tables. With forced RLS and no client-role grants, direct anon/authenticated Data API access is blocked locally. Privileged service-role access remains necessary for backend operations and is why application authorization and safe projections remain mandatory.
 
-The `supabase` CLI was not installed in the execution environment, so `supabase test db` was not run. The existing `backend/supabase/tests/database/spec11_table_privileges_and_policies.test.sql` already asserts the reviewed RLS/grant inventory for both event tables; the MCP queries above provide the local catalog result for this record.
+The `supabase` CLI was unavailable during the implementation commits. It was subsequently installed with Homebrew as v3.2.0 and rerun from `backend/supabase` against the local stack. `supabase test db` now passes all three local pgTAP files, including the event-table and Storage policy tests; the MCP queries above remain the direct catalog evidence for this record. The Storage pgTAP result validates catalog/policy state only; direct anon/authenticated object upload, download, and public-retrieval behavior remains separate effective-access evidence.
 
 ---
 
 ## 4. Verification evidence
 
-All test commands were run from `backend/` on Windows using `.venv/Scripts/python.exe`.
+All test commands were run from `backend/` on Windows using `.venv/Scripts/python.exe`. Supabase CLI checks were run from `backend/` with `/home/linuxbrew/.linuxbrew/bin` on `PATH`; every CLI command used the local stack default and did not pass `--remote`.
 
 | Evidence ID | Check | Command | Result |
 |---|---|---|---|
@@ -101,10 +101,16 @@ All test commands were run from `backend/` on Windows using `.venv/Scripts/pytho
 | E-WP05-05 | Patch sanity | `git diff --check` | Clean |
 | E-WP05-06 | Mounted API surface | `.venv/Scripts/python.exe -c "from main import app; spec=app.openapi(); print('paths', len(spec['paths']))"` | **81 paths**, unchanged |
 | E-WP05-07 | Projection column validation | Read-only MCP `information_schema.columns` query for `events` and `events_dead_letter` | Pass — all projected columns exist in the intended table |
+| E-WP05-08 | Supabase CLI availability | `supabase --version` | **3.2.0** |
+| E-WP05-09 | Local stack status | `supabase status -o pretty` | Local development stack running; database target `127.0.0.1:58562`; MCP/API endpoints available |
+| E-WP05-10 | CLI local database check | `supabase db query --read-only "select 1 as cli_query_ok"` | `cli_query_ok = 1`; local stack target |
+| E-WP05-11 | Local pgTAP suite | `supabase test db` | **PASS — 3 files, 28 tests**: `spec02_role_assignment_privileges.test.sql`, `spec11_table_privileges_and_policies.test.sql`, `spec12_storage_bucket_policy.test.sql` |
+| E-WP05-12 | Local migration history | `supabase migration list` | All **5** local migrations match local history |
+| E-WP05-13 | Local security advisories | `supabase db advisors --type security --level warn --fail-on none` | Completed with known local WARN advisories; no remediation applied |
 
 ### 4.1 Execution order 4 — focused negative authorization evidence
 
-The second implementation commit completes the docs-plan negative-test order. Using the local `backend/.agents/skills/supabase` and `backend/.agents/skills/supabase-postgres-best-practices` guidance, the Supabase changelog was reviewed for breaking changes; none affect this test-only order. The Supabase CLI is still unavailable (`supabase: command not found`), so no CLI migration or `supabase test db` run was substituted for the local MCP catalog check.
+The second implementation commit completes the docs-plan negative-test order. Using the local `backend/.agents/skills/supabase` and `backend/.agents/skills/supabase-postgres-best-practices` guidance, the Supabase changelog was reviewed for breaking changes; none affect this test-only order. The Supabase CLI was unavailable when that evidence was first recorded; after Homebrew installation it was rerun against the local stack from `backend/supabase` as v3.2.0, and the results are recorded in E-WP05-08 through E-WP05-13. No `--remote` target or migration was used.
 
 The route suite now includes a route-by-route denial matrix over all seven hardened admin event routes:
 
@@ -148,7 +154,7 @@ The following remain explicitly open. This work package is **not** sufficient to
 5. **Local versus hosted database.** The MCP catalog evidence is from the local Supabase stack only. Staging and production grants, RLS, policies, and effective-access behavior remain unverified.
 6. **Deployment surface.** The hardened admin event router is not mounted by `main.py`; no admin event HTTP route was deployed by this order. Mounting it requires a separate reviewed API change.
 7. **Runtime role evidence.** Tests use dependency overrides and fake clients; no hosted anon, patient, practitioner, org-admin, or system-admin identity was exercised.
-8. **CLI verification.** `supabase test db` was not run because the CLI is unavailable in this environment.
+8. **Hosted CLI/advisory evidence.** Local CLI checks now pass, but no `--remote` advisories, migration-history checks, or effective-access checks were run against staging or production.
 
 ---
 
@@ -161,7 +167,7 @@ Before SEC-09 can be closed:
 - move replay claim and queue insertion into a reviewed transactional database function if single-transaction atomicity is required by the final design;
 - mount the hardened admin router through a reviewed API change and rerun route tests against the mounted surface;
 - verify audit persistence and protection in staging;
-- run local `supabase test db` when the CLI is available;
+- retain local `supabase test db` evidence and repeat relevant CLI catalog/advisory checks in staging with explicit approval;
 - repeat catalog and effective-access checks in staging and production with distinct role identities;
 - obtain reviewer acceptance and link evidence to both plans’ traceability registers.
 
