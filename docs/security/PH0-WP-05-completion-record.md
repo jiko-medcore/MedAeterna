@@ -2,11 +2,13 @@
 
 **Work package:** PH0-WP-05 / finding SEC-09 / policy SPEC-09
 
-**Plan order:** `PHASE-0-BACKEND-SECURITY-BASELINE-AND-REMEDIATION-PLAN-v2.0.md` order 3 and `backend/MedAeterna_Phase_0_Backend_Security_Baseline_and_Remediation_Plan_v2.0.md` order 4
+**Plan order:** `PHASE-0-BACKEND-SECURITY-BASELINE-AND-REMEDIATION-PLAN-v2.0.md` orders 3–4 and `backend/MedAeterna_Phase_0_Backend_Security_Baseline_and_Remediation_Plan_v2.0.md` order 4 / PH0-WP-05 verification requirements
 
 **Branch:** `security/phase-0-db-storage-release`
 
 **Implementation commit:** `9977b88ecc5e20188af2a1ccb9e5c5c8e39f5cc7` (local, committed, not pushed)
+
+**Negative-test evidence commit:** `39011010e830630e12a05900600e3741513647a7` (local, committed, not pushed)
 
 **Execution-order base:** `dfaa0684feb9c618f5b3e3a6335c5ea15fd65451`; the baseline plan was restored read-only in `0602037ad788fa833ed1833dca33cd1e5656ee90` before this implementation commit.
 
@@ -29,7 +31,7 @@ This order covered administrative event reads, dead-letter visibility, single-ev
 | `backend/app/api/admin/events_router.py` | Seven system-admin-only routes now use approved purposes, explicit projections, policy evaluation, audit-before-access, bounded limits, and fail-closed behavior. |
 | `backend/app/api/admin/event_replay_router.py` | Duplicate replay surface remains neutralized; the consolidated route is `POST /admin/events/dead/{dead_event_id}/replay`. |
 | `backend/app/core/events/router.py` | Legacy unauthenticated `/events/*` read/retry/bulk-retry routes remain disabled and return 404. |
-| `backend/app/core/events/monitoring.py` | All `select('*')` calls were replaced with explicit metadata projections. Payloads, aggregate identifiers, and raw failure text are not returned by these helpers. |
+| `backend/app/core/events/monitoring.py` | All `select('*')` calls were replaced with explicit metadata projections. Payloads, aggregate identifiers, and raw failure text are not returned by these helpers. The dead-letter helper was corrected to select `events_dead_letter` columns rather than event-table columns. |
 | `backend/app/core/events/replay.py` | Dead-letter replay now uses a compare-and-set claim on `replayed = false`, fetches only the fields needed for the state transition, and leaves outcome auditing to the route. |
 | `backend/app/core/events/service.py` | Generic event retry now requires `status = failed` and `retry_count < 3`. |
 | `backend/app/core/operational_event_policy.py` | Adds a reviewed retry-safety allowlist hook and fixed-code normalization of stored failure text. The allowlist is intentionally empty. |
@@ -78,6 +80,7 @@ The Supabase MCP endpoint `http://127.0.0.1:58561/mcp` was used in read-only mod
 | `postgres` SELECT/INSERT/UPDATE/DELETE on both tables | All `true` |
 | `normalized_error_code` / `organization_id` columns on either table | Absent |
 | `payload`, `failure_reason`, `last_error` columns | Present on `events`; `payload` and `failure_reason` present on `events_dead_letter`; selected only server-side for normalization/replay and never returned by the hardened projections |
+| Projected monitoring columns | `events` and `events_dead_letter` column catalog confirms the corrected dead-letter projection uses `failed_at`, `replayed` and `replayed_at`, not event-table-only columns |
 
 No policies exist on the two event tables. With forced RLS and no client-role grants, direct anon/authenticated Data API access is blocked locally. Privileged service-role access remains necessary for backend operations and is why application authorization and safe projections remain mandatory.
 
@@ -91,11 +94,30 @@ All test commands were run from `backend/` on Windows using `.venv/Scripts/pytho
 
 | Evidence ID | Check | Command | Result |
 |---|---|---|---|
-| E-WP05-01 | Route-level SPEC-09 suite | `.venv/Scripts/python.exe -m pytest tests/api/admin/test_spec09_event_authorization.py -q --tb=short -p no:cacheprovider` | **16 passed** |
-| E-WP05-02 | Focused policy/log/WP-01 regression | `.venv/Scripts/python.exe -m pytest tests/api/admin/test_spec09_event_authorization.py tests/core/test_operational_event_policy.py tests/core/test_event_logging.py tests/core/test_security_phase0_wp01.py -q --tb=no -p no:cacheprovider` | **60 passed** |
-| E-WP05-03 | Full backend regression | `.venv/Scripts/python.exe -m pytest -q --tb=no -p no:cacheprovider` | **1,314 passed, 1 skipped, 18 warnings** |
+| E-WP05-01 | Route-level SPEC-09 suite | `.venv/Scripts/python.exe -m pytest tests/api/admin/test_spec09_event_authorization.py -q --tb=short -p no:cacheprovider` | **36 passed** |
+| E-WP05-02 | Focused policy/log/WP-01 regression | `.venv/Scripts/python.exe -m pytest tests/api/admin/test_spec09_event_authorization.py tests/core/test_operational_event_policy.py tests/core/test_event_logging.py tests/core/test_security_phase0_wp01.py -q --tb=no -p no:cacheprovider` | **80 passed** |
+| E-WP05-03 | Full backend regression | `.venv/Scripts/python.exe -m pytest -q --tb=no -p no:cacheprovider` | **1,334 passed, 1 skipped, 18 warnings** |
 | E-WP05-04 | Local database catalog | Read-only MCP `execute_sql` assertions listed in section 3 | Pass |
 | E-WP05-05 | Patch sanity | `git diff --check` | Clean |
+| E-WP05-06 | Mounted API surface | `.venv/Scripts/python.exe -c "from main import app; spec=app.openapi(); print('paths', len(spec['paths']))"` | **81 paths**, unchanged |
+| E-WP05-07 | Projection column validation | Read-only MCP `information_schema.columns` query for `events` and `events_dead_letter` | Pass — all projected columns exist in the intended table |
+
+### 4.1 Execution order 4 — focused negative authorization evidence
+
+The second implementation commit completes the docs-plan negative-test order. Using the local `backend/.agents/skills/supabase` and `backend/.agents/skills/supabase-postgres-best-practices` guidance, the Supabase changelog was reviewed for breaking changes; none affect this test-only order. The Supabase CLI is still unavailable (`supabase: command not found`), so no CLI migration or `supabase test db` run was substituted for the local MCP catalog check.
+
+The route suite now includes a route-by-route denial matrix over all seven hardened admin event routes:
+
+- 401 with no service-role query and no audit write for unauthenticated requests.
+- 403 with no service-role query and no audit write for patient, practitioner and organization-admin identities.
+- 400 with no service-role query and no audit write for disallowed read purposes on all six read routes.
+- 400 with no service-role query and no audit write for a disallowed retry purpose.
+- 422 with no service-role query and no audit write for an empty retry reason.
+- 403 with no service-role query on all six read routes when audit persistence fails.
+- 403 with only the minimal policy-state select and no update, insert or audit record when replay audit persistence fails.
+- Route-introspection assertion that every admin event route declares `get_current_user()` as a dependency.
+
+The matrix proves denial occurs before privileged access at the application boundary. It does not prove hosted role behavior or persistent audit durability.
 
 The route suite covers:
 
@@ -110,7 +132,7 @@ The route suite covers:
 - Compare-and-set claim against a stale concurrent read; only one insert and no duplicate replay.
 - Attempt, final success and final denial audit records without payload or raw error text.
 - Legacy `/events/*` routes remaining disabled.
-- Internal monitoring helpers not selecting payload or raw error fields.
+- Internal monitoring helpers not selecting payload or raw error fields, with exact event and dead-letter projection field sets asserted.
 - Generic retry requiring failed state and a retry count below the limit.
 
 ---
