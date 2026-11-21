@@ -1,6 +1,6 @@
 # SPEC-09: Operational-Event Visibility and Retry
 
-**Status:** Event visibility and manual-retry policy are defined in a reference evaluator, with safe metadata projection, scoped reads, retry gates, and event-log redaction tests. Initial admin-route enforcement and unsafe legacy-route disablement were implemented on `security/phase-0-db-storage-release` @ `421d28a` (20 November 2026, local, unmerged); trusted organization resolution, full replay atomicity/handler-safety enforcement, route-level integration tests, grants/RLS, and hosted/effective-access verification remain remediation work.
+**Status:** Event visibility and manual-retry policy are defined in a reference evaluator, with safe metadata projection, scoped reads, retry gates, and event-log redaction tests. Initial admin-route enforcement landed on `security/phase-0-db-storage-release` @ `421d28a`; PH0-WP-05 then added data-layer projections, retry-safety gating, compare-and-set replay, and route-level integration tests in the same branch in implementation commit `9977b88` (21 November 2026, local, committed, not pushed). Trusted organization resolution, handler retry-safety approval, full transactional atomicity, persistent/hosted audit evidence, and staging/production effective-access verification remain remediation work. See the [PH0-WP-05 completion record](PH0-WP-05-completion-record.md).
 
 ## Decision
 
@@ -83,9 +83,25 @@ Implemented on `security/phase-0-db-storage-release` @ `421d28a` (not pushed, no
 - **Admin audit/metrics (`backend/app/api/admin/audit_router.py`, `backend/app/api/admin/metrics_router.py`)**: hardened to system-admin + approved purpose with safe projections/fail-closed access and audit-before-read for audit access; onboarding event breakdown metrics denied as not a safe SPEC-09 projection.
 - **Logging hygiene**: `backend/app/core/events/dead_letter.py` corrected to avoid unsafe/undefined audit logging and to avoid emitting sensitive details.
 
-**Remaining gaps (not closed):** trusted event-to-organization resolution and normalized `organization_id` are still absent, so organization-administrator scoped event reads are not enabled and admin event APIs remain fail-closed to system-admin safe projections; `backend/app/core/events/monitoring.py` still performs `select('*')` at the data-access layer (route exposure reduced but underlying access/projection is not fully remediated); `replay_dead_event`/service retry transitions are not yet enforced as fully atomic compare-and-set operations per this SPEC and handler retry-safety is not formally registry-mapped; direct DB grants/RLS, effective hosted exposure, and route-level SPEC-09 integration/negative tests remain required evidence.
+**Status of these gaps at PH0-WP-05:** the `select('*')` calls in `backend/app/core/events/monitoring.py` have been replaced with explicit metadata projections; `replay_dead_event` now uses a compare-and-set claim; generic service retry requires failed state and a retry count below the limit; a retry-safety allowlist hook exists but is intentionally empty; and route-level integration/negative tests have been added. These changes are local and do not close the SPEC.
 
-No local or hosted database schema or data was changed for this work item. The reference policy and branch route hardening do not claim existing event queries, grants, RLS, audit persistence guarantees, or retry transactions are fully fixed.
+**Remaining gaps (not closed):** trusted event-to-organization resolution and normalized `organization_id` are still absent, so organization-administrator scoped event reads remain disabled; no event handler is approved for manual retry; replay claim plus queue insertion is not one database transaction; audit assertions use fakes rather than hosted audit-table verification; the hardened admin router is not mounted by `main.py`; and local catalog checks do not prove hosted/staging RLS, grants, or effective access.
+
+No local or hosted database schema or data was changed for either work item. The reference policy and branch hardening do not claim hosted grants, RLS, audit persistence guarantees, or full transaction semantics are proven.
+
+### PH0-WP-05 branch remediation progress (21 November 2026, local, unmerged)
+
+Implemented on `security/phase-0-db-storage-release` in commit `9977b88`:
+
+- **Safe projections:** `backend/app/core/events/monitoring.py` and every admin event route now select fixed metadata fields only. Raw `failure_reason`/`last_error` text is normalized server-side to the fixed code set or omitted; payloads and aggregate identifiers are never returned.
+- **Purpose separation:** reads require `platform_health` or `security_incident`; replay requires `event_recovery` or `security_incident`. Free-text retry reasons are bounded and rejected when they contain obvious contact data.
+- **Retry-safety gate:** `MANUAL_RETRY_SAFE_EVENT_TYPES` plus `is_manual_retry_safe()` require both an explicit review allowlist and current handler registration. The allowlist is empty by design; registered handlers have side effects that are not proven idempotent.
+- **Replay claim:** dead-letter replay performs a compare-and-set on `replayed = false` before inserting one pending event, with a compensating claim reset if insertion fails. This prevents duplicate claims but does not provide a single database transaction.
+- **State-scoped service retry:** `EventService.retry_event()` now requires `status = failed` and `retry_count < 3`.
+- **Route-level tests:** `backend/tests/api/admin/test_spec09_event_authorization.py` mounts the hardened router on an isolated app and verifies 401/403/400 denials, no query before authorization, safe projections, audit failure denial, retry-safety denial, contact-data rejection, CAS duplicate prevention, disabled legacy routes, and safe internal monitoring selections.
+- **Local catalog evidence:** both event tables are RLS-enabled and forced with zero policies; anon/authenticated have no SELECT/INSERT/UPDATE/DELETE privilege; service_role retains those privileges; no `normalized_error_code` or `organization_id` column exists.
+
+The hardened admin router is intentionally not mounted by `main.py` in this slice. SEC-09 remains open; see the [PH0-WP-05 completion record](PH0-WP-05-completion-record.md) for the full evidence and limitations.
 
 ## Supabase/database enforcement
 
@@ -96,6 +112,8 @@ The future route/service implementation must use an explicit safe projection and
 `backend/app/core/operational_event_policy.py` defines event-type/aggregate allowlists, field projections, org-admin scoping, system-admin purposes and redaction, aggregate-only summaries, and single-event retry eligibility. It delegates role/action decisions to `backend/app/core/action_authorization.py`. Inputs such as organization resolution, payload redaction, approved visibility, handler retry safety, and audit completion are trusted server evidence; the reference policy does not perform those operations.
 
 Focused tests are in `backend/tests/core/test_operational_event_policy.py`, `backend/tests/core/test_event_logging.py`, and `backend/tests/core/test_action_authorization.py`. They cover role boundaries, cross-organization denial, event and field allowlists, patient-event redaction, summary bounds, retries and invalid states, retry-safe handlers, audit/redaction gates, and safe event logs.
+
+Route-level tests are in `backend/tests/api/admin/test_spec09_event_authorization.py`. They mount the hardened router on an isolated app and cover authentication, role denial before privileged queries, purpose allowlists, safe projections, audit failure, retry-safety denial, contact-data rejection, compare-and-set replay, disabled legacy routes, and safe internal monitoring selections. They do not prove hosted behavior or approve any handler for production retry.
 
 ## Acceptance criteria
 
@@ -109,12 +127,16 @@ Focused tests are in `backend/tests/core/test_operational_event_policy.py`, `bac
 - [x] Focused and neighboring security-policy tests pass and are recorded below.
 - [x] Event-emission and processing logs omit credentials, event/patient identifiers, and raw exception messages.
 
+The checkboxes above describe the evaluated policy model and local implementation state, not closure of SEC-09. Manual retry remains fail-closed because no handler has an approved retry-safety decision, and org-admin event reads remain fail-closed because no trusted organization resolver exists.
+
 ## Verification record
 
 Focused command: `.venv/Scripts/python.exe -m pytest tests/core/test_operational_event_policy.py tests/core/test_event_logging.py -q --tb=short -p no:cacheprovider` (run from `backend/`). Result: **35 passed**.
 
 Security-policy regression command: `.venv/Scripts/python.exe -m pytest tests/core/test_operational_event_policy.py tests/core/test_event_logging.py tests/core/test_action_authorization.py tests/core/test_role_catalogue.py tests/core/test_system_admin_patient_access.py tests/core/test_organization_admin_patient_access.py tests/core/test_patient_relationship_policy.py tests/core/test_consent_policy.py tests/core/test_patient_access_grants_schema.py -q --tb=short -p no:cacheprovider` (run from `backend/`). Result: **373 passed**. Both runs reported 12 dependency deprecation warnings from installed `pyiceberg`/Pydantic packages; no tests failed.
 
-`git diff --check` is clean. Tests verify the pure policy and log output only. Route authentication/authorization, actual query projection, organization resolver, grants/RLS, persistent audit, and transactional retry tests remain required remediation evidence before SEC-09 can be closed.
+`git diff --check` is clean. These baseline tests verify the pure policy and log output only. Route authentication/authorization, actual query projection, organization resolver, hosted grants/RLS, persistent audit, and full transactional retry evidence remain required before SEC-09 can be closed.
 
 **PH0-WP-01 branch verification (20 November 2026, local, unmerged, commit `421d28a`, not independently rerun for this document update):** focused `.venv\Scripts\python.exe -m pytest tests/core/test_security_phase0_wp01.py tests/core/test_event_logging.py tests/core/test_operational_event_policy.py tests/core/test_action_authorization.py tests/organizations/test_router.py -q --tb=short` → **86 passed**; focused role-assignment regression `.venv\Scripts\python.exe -m pytest tests/auth/test_role_assignment_policy.py tests/auth/test_role_assignment_service.py -q --tb=short` → **15 passed**; OpenAPI generation `from main import app; app.openapi()` → **ok**; full backend suite `.venv\Scripts\python.exe -m pytest -q --tb=short` → **1,281 passed, 1 skipped, 18 warnings**. These runs provide supporting regression evidence for the branch hardening but do not substitute for route-level SPEC-09 integration tests, database/grant/RLS verification, or hosted/staging effective-access evidence.
+
+**PH0-WP-05 branch verification (21 November 2026, local, committed as `9977b88`, not pushed):** route suite `.venv\Scripts\python.exe -m pytest tests/api/admin/test_spec09_event_authorization.py -q --tb=short -p no:cacheprovider` → **16 passed**; combined focused regression `.venv\Scripts\python.exe -m pytest tests/api/admin/test_spec09_event_authorization.py tests/core/test_operational_event_policy.py tests/core/test_event_logging.py tests/core/test_security_phase0_wp01.py -q --tb=no -p no:cacheprovider` → **60 passed**; full backend suite `.venv\Scripts\python.exe -m pytest -q --tb=no -p no:cacheprovider` → **1,314 passed, 1 skipped, 18 warnings**; `git diff --check` → **clean**. Read-only Supabase MCP catalog queries confirmed forced RLS with zero policies, no anon/authenticated table privileges, and service_role-only DML on both event tables in the local database. These are local implementation and regression results only; they do not prove hosted/staging behavior, persistent audit protection, handler retry-safety approval, or SEC-09 closure. Full evidence is in the [PH0-WP-05 completion record](PH0-WP-05-completion-record.md).
