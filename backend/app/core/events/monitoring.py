@@ -120,7 +120,7 @@ def get_dead_letter_events(limit: int = 100):
     return (
         supabase_admin
         .table("events_dead_letter")
-        .select(EVENT_METADATA_SELECT)
+        .select(DEAD_LETTER_METADATA_SELECT)
         .order("failed_at", desc=True)
         .limit(limit)
         .execute()

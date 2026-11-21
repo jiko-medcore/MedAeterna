@@ -206,20 +206,45 @@ def monitoring_router():
     return router
 
 
-def test_admin_event_routes_require_authentication(harness):
-    _, audit_records, client_for = harness
+ADMIN_READ_ROUTES = (
+    ("events-list", "get", "/admin/events", {"purpose": "platform_health"}),
+    ("stats", "get", "/admin/events/stats", {"purpose": "platform_health"}),
+    ("failed", "get", "/admin/events/failed", {"purpose": "platform_health"}),
+    ("dead-list", "get", "/admin/events/dead", {"purpose": "platform_health"}),
+    ("dead-detail", "get", "/admin/events/dead/dead-1", {"purpose": "platform_health"}),
+    ("event-detail", "get", "/admin/events/event-org", {"purpose": "platform_health"}),
+)
+ADMIN_RETRY_ROUTE = (
+    "replay",
+    "post",
+    "/admin/events/dead/dead-1/replay",
+    {"purpose": "event_recovery", "reason": "incident recovery"},
+)
+ADMIN_ROUTES = ADMIN_READ_ROUTES + (ADMIN_RETRY_ROUTE,)
+
+
+def _request(client, method, path, params):
+    return getattr(client, method)(path, params=params)
+
+
+@pytest.mark.parametrize(
+    "name,method,path,params", ADMIN_ROUTES, ids=[case[0] for case in ADMIN_ROUTES]
+)
+def test_admin_event_routes_require_authentication(harness, name, method, path, params):
+    fake, audit_records, client_for = harness
     with client_for() as client:
-        responses = [
-            client.get("/admin/events", params={"purpose": "platform_health"}),
-            client.get("/admin/events/stats", params={"purpose": "platform_health"}),
-            client.get("/admin/events/dead", params={"purpose": "platform_health"}),
-            client.post(
-                "/admin/events/dead/dead-1/replay",
-                params={"purpose": "event_recovery", "reason": "incident recovery"},
-            ),
-        ]
-    assert [r.status_code for r in responses] == [401, 401, 401, 401]
+        response = _request(client, method, path, params)
+    assert response.status_code == 401
+    assert fake.calls == []
     assert audit_records == []
+
+
+def test_all_admin_event_routes_declare_caller_auth_dependency():
+    routes = list(admin_events.router.routes)
+    assert len(routes) == len(ADMIN_ROUTES)
+    for route in routes:
+        dependencies = {dependency.call for dependency in route.dependant.dependencies}
+        assert security.get_current_user in dependencies, route.path
 
 
 @pytest.mark.parametrize("category", [PATIENT, PRACTITIONER, ORGANIZATION_ADMINISTRATOR])
@@ -243,10 +268,26 @@ def test_non_system_roles_are_denied_before_any_privileged_query(harness, catego
     assert audit_records == []
 
 
-def test_read_purpose_allowlist_is_enforced(harness):
+@pytest.mark.parametrize(
+    "name,method,path,params", ADMIN_READ_ROUTES, ids=[case[0] for case in ADMIN_READ_ROUTES]
+)
+def test_read_purpose_allowlist_is_enforced_before_query(harness, name, method, path, params):
+    fake, audit_records, client_for = harness
+    invalid_params = {**params, "purpose": "event_recovery"}
+    with client_for(_user(SYSTEM_ADMINISTRATOR)) as client:
+        response = _request(client, method, path, invalid_params)
+    assert response.status_code == 400
+    assert fake.calls == []
+    assert audit_records == []
+
+
+def test_retry_purpose_allowlist_is_enforced_before_query(harness):
     fake, audit_records, client_for = harness
     with client_for(_user(SYSTEM_ADMINISTRATOR)) as client:
-        response = client.get("/admin/events", params={"purpose": "event_recovery"})
+        response = client.post(
+            "/admin/events/dead/dead-1/replay",
+            params={"purpose": "platform_health", "reason": "incident recovery"},
+        )
     assert response.status_code == 400
     assert fake.calls == []
     assert audit_records == []
@@ -315,8 +356,37 @@ def test_retry_rejects_contact_data_in_reason(harness):
     assert audit_records == []
 
 
+def test_retry_rejects_empty_reason_before_query(harness):
+    fake, audit_records, client_for = harness
+    with client_for(_user(SYSTEM_ADMINISTRATOR)) as client:
+        response = client.post(
+            "/admin/events/dead/dead-1/replay",
+            params={"purpose": "event_recovery", "reason": ""},
+        )
+    assert response.status_code == 422
+    assert fake.calls == []
+    assert audit_records == []
+
+
+@pytest.mark.parametrize(
+    "name,method,path,params", ADMIN_READ_ROUTES, ids=[case[0] for case in ADMIN_READ_ROUTES]
+)
+def test_audit_failure_prevents_read_query(harness, monkeypatch, name, method, path, params):
+    fake, audit_records, client_for = harness
+
+    def failing_audit(**kwargs):
+        raise RuntimeError("audit unavailable")
+
+    monkeypatch.setattr(admin_events, "log_audit_event", failing_audit)
+    with client_for(_user(SYSTEM_ADMINISTRATOR)) as client:
+        response = _request(client, method, path, params)
+    assert response.status_code == 403
+    assert fake.calls == []
+    assert audit_records == []
+
+
 def test_audit_failure_prevents_retry(harness, monkeypatch):
-    fake, _, client_for = harness
+    fake, audit_records, client_for = harness
 
     def failing_audit(**kwargs):
         raise RuntimeError("audit unavailable")
@@ -328,8 +398,10 @@ def test_audit_failure_prevents_retry(harness, monkeypatch):
             params={"purpose": "event_recovery", "reason": "incident recovery"},
         )
     assert response.status_code == 403
-    assert not any(call["operation"] == "update" for call in fake.calls)
+    assert all(call["operation"] == "select" for call in fake.calls)
+    assert not any(call["operation"] == "insert" for call in fake.calls)
     assert fake.rows["events_dead_letter"][0]["replayed"] is False
+    assert audit_records == []
 
 
 def test_retry_uses_compare_and_set_and_audits_without_payload(harness):
@@ -410,6 +482,9 @@ def test_monitoring_helpers_do_not_select_payloads(harness):
     fake, _, _ = harness
     assert monitoring.get_events()[0]["id"] == "event-org"
     assert monitoring.get_dead_letter_events()[0]["id"] == "dead-1"
+    assert [call["table"] for call in fake.calls] == ["events", "events_dead_letter"]
+    assert fake.calls[0]["select"] == monitoring.EVENT_METADATA_SELECT
+    assert fake.calls[1]["select"] == monitoring.DEAD_LETTER_METADATA_SELECT
     for call in fake.calls:
         assert call["select"] is not None
         assert "*" not in str(call["select"])
