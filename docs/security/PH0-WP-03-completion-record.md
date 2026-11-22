@@ -8,7 +8,7 @@
 
 **Execution base:** `3a79e2a` (local HEAD before this work)
 
-**Implementation commit:** `0984bcc` (local, committed, not pushed)
+**Implementation commit:** `619a6c7` (local, committed, not pushed)
 
 **Review date:** 22 November 2026
 
