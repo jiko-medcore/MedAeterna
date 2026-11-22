@@ -1,9 +1,9 @@
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, Literal, Optional
+
+from pydantic import BaseModel, field_validator
 
 
-# ----- Grant Consent Model -----
 class ConsentGrant(BaseModel):
     organization_id: str
     practitioner_id: Optional[str] = None
@@ -11,13 +11,19 @@ class ConsentGrant(BaseModel):
     access_level: str
     purpose_of_use: Optional[str] = None
     legal_basis: Optional[str] = None
-    emergency_access: bool = False
+    emergency_access: Literal[False] = False
     effective_from: Optional[datetime] = None
-    expires_at: Optional[datetime] = None
+    expires_at: datetime
     metadata: Optional[Dict[str, Any]] = None
 
+    @field_validator("effective_from", "expires_at")
+    @classmethod
+    def require_timezone_aware_timestamps(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("consent timestamps must include a timezone")
+        return value
 
-# ----- Revoke Consent Model -----
+
 class ConsentRevoke(BaseModel):
     consent_id: str
     revoked_reason: Optional[str] = None

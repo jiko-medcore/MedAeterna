@@ -105,9 +105,10 @@ def _own(name: str, command: str, column: str) -> PolicyRule:
     )
 
 
-# The 26 public relations observed in the local Supabase catalog on 2026-11-20.
-# Every entry must have an explicit class, explicit grants, and explicit policy
-# intent. Absence from this inventory means deny by default.
+# Reviewed public relations. The first 26 were observed in the local Supabase
+# catalog on 2026-11-20; the remaining entries are installed by the PH0-WP-03
+# local release-candidate migration. Every entry must have an explicit class,
+# explicit grants, and explicit policy intent. Absence means deny by default.
 DATABASE_ACCESS_INVENTORY: dict[str, TableAccessRule] = {
     "profiles": _rule(
         "profiles",
@@ -170,20 +171,20 @@ DATABASE_ACCESS_INVENTORY: dict[str, TableAccessRule] = {
     "consent_records": _rule(
         "consent_records",
         TableClass.CALLER_RLS,
-        authenticated={"SELECT", "INSERT", "UPDATE"},
+        authenticated={"SELECT"},
         service={"SELECT", "INSERT", "UPDATE"},
-        policies=(
-            _own("Patients read own consent", "SELECT", "patient_id"),
-            _own("Patients insert own consent", "INSERT", "patient_id"),
-            _own("Patients update own consent", "UPDATE", "patient_id"),
-        ),
+        policies=(_own("Patients read own consent", "SELECT", "patient_id"),),
         indexes=(
             "consent_records(patient_id)",
             "consent_records(organization_id)",
             "consent_records(practitioner_id)",
             "consent_records(status)",
         ),
-        note="Revocation is an UPDATE; DELETE is never granted.",
+        note=(
+            "Direct client writes are revoked; the trusted backend supplies "
+            "grantor/revoker provenance. Finite expiry, emergency prohibition "
+            "and immutable scope constraints are enforced by migration."
+        ),
     ),
     "practitioners": _rule(
         "practitioners",
@@ -275,7 +276,11 @@ DATABASE_ACCESS_INVENTORY: dict[str, TableAccessRule] = {
         "care_teams",
         TableClass.SERVICE_ONLY,
         service={"SELECT", "INSERT", "UPDATE", "DELETE"},
-        indexes=("care_teams(patient_id, clinician_id)", "care_teams(clinician_id)"),
+        indexes=(
+            "care_teams(patient_id, clinician_id)",
+            "care_teams(clinician_id)",
+            "care_teams(organization_id)",
+        ),
     ),
     "clinicians_patients": _rule(
         "clinicians_patients",
@@ -359,18 +364,101 @@ DATABASE_ACCESS_INVENTORY: dict[str, TableAccessRule] = {
             "events_dead_letter(failed_at)",
         ),
     ),
+    "appointments": _rule(
+        "appointments",
+        TableClass.SERVICE_ONLY,
+        service={"SELECT", "INSERT", "UPDATE"},
+        indexes=(
+            "appointments(patient_id)",
+            "appointments(practitioner_id)",
+            "appointments(organization_id)",
+            "appointments(start_time)",
+        ),
+        note="Application-referenced clinical relation; no client grant or policy.",
+    ),
+    "encounters": _rule(
+        "encounters",
+        TableClass.SERVICE_ONLY,
+        service={"SELECT", "INSERT", "UPDATE"},
+        indexes=(
+            "encounters(patient_id)",
+            "encounters(organization_id)",
+            "encounters(practitioner_id)",
+            "encounters(appointment_id)",
+        ),
+        note="Application-referenced clinical relation; no client grant or policy.",
+    ),
+    "observations": _rule(
+        "observations",
+        TableClass.SERVICE_ONLY,
+        service={"SELECT", "INSERT", "UPDATE"},
+        indexes=(
+            "observations(patient_id)",
+            "observations(encounter_id)",
+            "observations(organization_id)",
+        ),
+        note="Application-referenced clinical relation; no client grant or policy.",
+    ),
+    "conditions": _rule(
+        "conditions",
+        TableClass.SERVICE_ONLY,
+        service={"SELECT", "INSERT", "UPDATE"},
+        indexes=(
+            "conditions(patient_id)",
+            "conditions(encounter_id)",
+            "conditions(organization_id)",
+        ),
+        note="Application-referenced clinical relation; no client grant or policy.",
+    ),
+    "medication_requests": _rule(
+        "medication_requests",
+        TableClass.SERVICE_ONLY,
+        service={"SELECT", "INSERT", "UPDATE"},
+        indexes=(
+            "medication_requests(patient_id)",
+            "medication_requests(encounter_id)",
+            "medication_requests(organization_id)",
+        ),
+        note="Application-referenced clinical relation; no client grant or policy.",
+    ),
+    "care_team_participants": _rule(
+        "care_team_participants",
+        TableClass.SERVICE_ONLY,
+        service={"SELECT", "INSERT", "UPDATE"},
+        indexes=(
+            "care_team_participants(care_team_id)",
+            "care_team_participants(practitioner_id)",
+        ),
+        note="Application-referenced care-team relation; no client grant or policy.",
+    ),
+    "patient_access_grants": _rule(
+        "patient_access_grants",
+        TableClass.SERVICE_ONLY,
+        service={"SELECT", "INSERT", "UPDATE"},
+        indexes=(
+            "patient_access_grants(patient_id, practitioner_id, organization_id)",
+            "patient_access_grants(patient_id)",
+            "patient_access_grants(practitioner_id)",
+            "patient_access_grants(organization_id)",
+        ),
+        note="SPEC-06 canonical patient-approved grants; no client access or legacy promotion.",
+    ),
+    "patient_access_grant_audit": _rule(
+        "patient_access_grant_audit",
+        TableClass.APPEND_ONLY_AUDIT,
+        service={"SELECT", "INSERT"},
+        indexes=(
+            "patient_access_grant_audit(grant_id)",
+            "patient_access_grant_audit(occurred_at)",
+        ),
+        note="Append-only request/approval/revocation/expiry trail; no client access.",
+    ),
 }
 
-# Absent from the inspected catalog but already committed to by the plan.
-# They must be added to DATABASE_ACCESS_INVENTORY in the migration that creates
-# them; an unregistered table is not covered by any grant or policy.
+# Still absent from the local catalog. Implemented relations were promoted into
+# DATABASE_ACCESS_INVENTORY by the PH0-WP-03 migration; an unregistered relation
+# remains denied by default.
 PLANNED_TABLES: dict[str, str] = {
-    "patient_access_grants": "SPEC-06: patient-owned read grants, patient self-service plus service-role expiry worker",
-    "appointments": "SPEC-03/04: patient self-read plus trusted backend workflow access",
-    "encounters": "SPEC-03/04: patient self-read plus trusted backend clinical access",
-    "observations": "SPEC-03/04/05: patient self-read plus trusted backend clinical access",
-    "conditions": "SPEC-03/04/05: patient self-read plus trusted backend clinical access",
-    "medication_requests": "SEC-08: patient self-read plus trusted backend clinical access",
     "patient_admin_data": "SPEC-07: view with security_invoker = true in a private schema, service_role only",
 }
 
@@ -404,6 +492,24 @@ FUNCTION_ACCESS_INVENTORY: dict[str, FunctionAccessRule] = {
         required_search_path=("pg_catalog", "public"),
         allowed_execute_roles=frozenset({"service_role"}),
         note="Uses unmapped legacy role name 'admin'; retained only for service role.",
+    ),
+    "validate_patient_access_grant_record()": FunctionAccessRule(
+        signature="validate_patient_access_grant_record()",
+        required_search_path=("pg_catalog", "public"),
+        allowed_execute_roles=frozenset({"service_role"}),
+        note="SPEC-06 canonical grant scope validator; service-role-only capability.",
+    ),
+    "record_patient_access_grant_audit()": FunctionAccessRule(
+        signature="record_patient_access_grant_audit()",
+        required_search_path=("pg_catalog", "public"),
+        allowed_execute_roles=frozenset({"service_role"}),
+        note="SPEC-06 append-only lifecycle audit trigger; service-role-only capability.",
+    ),
+    "enforce_consent_record_immutability()": FunctionAccessRule(
+        signature="enforce_consent_record_immutability()",
+        required_search_path=("pg_catalog", "public"),
+        allowed_execute_roles=frozenset({"service_role"}),
+        note="SPEC-05 approved consent scope and lifecycle fields are immutable.",
     ),
 }
 

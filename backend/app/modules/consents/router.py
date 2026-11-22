@@ -24,7 +24,7 @@ def create_consent(
     current_user: dict = Depends(get_current_user),
 ):
     patient_id = _require_patient_self(current_user)
-    return grant_consent(patient_id, payload)
+    return grant_consent(patient_id, payload, actor_user_id=str(current_user["id"]))
 
 
 @router.post("/revoke")
@@ -33,7 +33,7 @@ def revoke_patient_consent(
     current_user: dict = Depends(get_current_user),
 ):
     patient_id = _require_patient_self(current_user)
-    return revoke_consent(patient_id, payload)
+    return revoke_consent(patient_id, payload, actor_user_id=str(current_user["id"]))
 
 
 @router.get("/me")

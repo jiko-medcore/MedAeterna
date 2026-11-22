@@ -414,7 +414,10 @@ def _active_consent_access(
     now = datetime.now(timezone.utc)
     query = (
         supabase_admin.table("consent_records")
-        .select("id, status, expires_at, practitioner_id, organization_id")
+        .select(
+            "id, status, granted_by, granted_at, effective_from, expires_at, "
+            "revoked_at, emergency_access, consent_type, practitioner_id, organization_id"
+        )
         .eq("patient_id", str(patient_id))
         .eq("status", "active")
     )
@@ -428,18 +431,36 @@ def _active_consent_access(
             continue
         # Null practitioner_id means an organization/patient-granted scope; only
         # acceptable when caller is the resolved practitioner in-context.
-        expires_at = row.get("expires_at")
-        if expires_at:
-            try:
-                dt = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                if dt <= now:
-                    continue
-            except Exception:
-                continue
+        if row.get("revoked_at") is not None:
+            continue
+        if row.get("emergency_access") is True or row.get("consent_type") == "emergency":
+            continue
+        if not row.get("granted_by") or not row.get("granted_at"):
+            continue
+
+        granted_at = _consent_time(row.get("granted_at"))
+        expires_at = _consent_time(row.get("expires_at"))
+        effective_from = _consent_time(row.get("effective_from"))
+        if granted_at is None or granted_at > now or expires_at is None or expires_at <= granted_at:
+            continue
+        if effective_from is not None and effective_from > now:
+            continue
+        if expires_at <= now:
+            continue
         return True
     return False
+
+
+def _consent_time(value: object) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def authorize_patient_access(

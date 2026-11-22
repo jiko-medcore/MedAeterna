@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -198,3 +199,64 @@ def test_require_patient_access_manual_compatibility_builds_context(monkeypatch)
     }
     monkeypatch.setattr(security, "supabase_admin", FakeSupabaseAdmin(responses))
     assert security.require_patient_access_manual("patient-1", "user-prac-1") is True
+
+
+def _consent_responses(rows):
+    return {
+        (
+            "consent_records",
+            (
+                ("eq", "organization_id", "org-1"),
+                ("eq", "patient_id", "patient-1"),
+                ("eq", "status", "active"),
+            ),
+        ): rows
+    }
+
+
+def _valid_consent_row(**overrides):
+    now = datetime.now(timezone.utc)
+    row = {
+        "id": "consent-1",
+        "granted_by": "patient-1",
+        "granted_at": (now - timedelta(days=1)).isoformat(),
+        "effective_from": (now - timedelta(days=1)).isoformat(),
+        "expires_at": (now + timedelta(days=1)).isoformat(),
+        "revoked_at": None,
+        "emergency_access": False,
+        "consent_type": "treatment",
+        "practitioner_id": "prac-1",
+        "organization_id": "org-1",
+    }
+    row.update(overrides)
+    return row
+
+
+def test_active_consent_requires_finite_expiry_and_grant_provenance(monkeypatch):
+    monkeypatch.setattr(
+        security,
+        "supabase_admin",
+        FakeSupabaseAdmin(_consent_responses([_valid_consent_row()])),
+    )
+    assert security._active_consent_access("patient-1", "prac-1", "org-1") is True
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"expires_at": None},
+        {"granted_by": None},
+        {"granted_at": None},
+        {"revoked_at": "2026-11-21T00:00:00+00:00"},
+        {"emergency_access": True},
+        {"consent_type": "emergency"},
+        {"expires_at": "2020-01-01T00:00:00+00:00"},
+    ],
+)
+def test_active_consent_denies_unproven_or_non_finite_rows(monkeypatch, overrides):
+    monkeypatch.setattr(
+        security,
+        "supabase_admin",
+        FakeSupabaseAdmin(_consent_responses([_valid_consent_row(**overrides)])),
+    )
+    assert security._active_consent_access("patient-1", "prac-1", "org-1") is False
