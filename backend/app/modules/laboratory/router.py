@@ -12,4 +12,3 @@ def get_lab_result(
     current_user: dict = Depends(get_current_user),
 ):
     return build_lab_detail(lab_id, current_user)
-

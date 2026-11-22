@@ -86,4 +86,3 @@ def fetch_medical_records(patient_id: str):
         .execute()
     )
     return response.data or []
-

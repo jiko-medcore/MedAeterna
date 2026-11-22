@@ -39,4 +39,3 @@ def build_lab_detail(lab_id: str, current_user: dict) -> dict:
         },
         "raw": lab,
     }
-

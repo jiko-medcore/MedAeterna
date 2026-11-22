@@ -1,10 +1,10 @@
 # PH0-WP-06 Policy Approval Record — SPEC-01–SPEC-10 and Consent/Access Model
 
-**Work package:** PH0-WP-06 / backend plan execution order 5  
-**Exit condition:** `No policy guessing`  
-**Branch:** `security/phase-0-db-storage-release`  
-**Review date:** 21 November 2026  
-**Policy approval:** Approved for implementation by the designated MedAeterna technical/security owner for the decisions already written in SPEC-01–SPEC-10.  
+**Work package:** PH0-WP-06 / backend plan execution order 5
+**Exit condition:** `No policy guessing`
+**Branch:** `security/phase-0-db-storage-release`
+**Review date:** 21 November 2026
+**Policy approval:** Approved for implementation by the designated MedAeterna technical/security owner for the decisions already written in SPEC-01–SPEC-10.
 **Status:** **Policy/design approved for documented decisions — NOT IMPLEMENTED, NOT ACCEPTED, NOT PRODUCTION-APPROVED**
 
 > This record completes the policy/approval portion of execution order 5. It does not create a database migration, change application query paths, deploy anything, or claim Phase 0 acceptance. Undocumented decisions remain denied by default. Local remediation is not production remediation.
@@ -139,9 +139,9 @@ This record approves the model; it does not complete PH0-WP-06 implementation ac
 
 ## 8. Decision
 
-**Order 5 exit condition:** met for policy/design approval of documented decisions; all undocumented decisions are explicitly fail-closed.  
-**PH0-WP-06 implementation acceptance:** not claimed.  
-**Phase 0 acceptance:** **NOT ACCEPTED**.  
+**Order 5 exit condition:** met for policy/design approval of documented decisions; all undocumented decisions are explicitly fail-closed.
+**PH0-WP-06 implementation acceptance:** not claimed.
+**Phase 0 acceptance:** **NOT ACCEPTED**.
 **Production deployment:** not approved; no hosted change was made.
 
 ---

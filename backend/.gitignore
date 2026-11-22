@@ -12,7 +12,7 @@ gen_token.py
 desktop.ini
 Thumbs.db
 desktop.ini
-desktop* 
+desktop*
 ../desktop.ini
 ../docs/desktop.ini
 ../frontend/android/app/desktop.ini

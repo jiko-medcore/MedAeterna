@@ -79,7 +79,7 @@ The local stack is not a staging environment. At the operator’s direction it w
 - 3 Storage buckets with exact reviewed public flags, 2 MiB limits and JPEG/PNG/WebP allowlists; 1 `Deny direct client object access` policy.
 - 22/22 effective API checks covered anon/authenticated denial, service-role write/list/sign/delete, public retrieval, cross-tenant listing denial, MIME/size rejection, deterministic upsert, and cleanup.
 
-This evidence was re-run from a clean local reset at HEAD `e5bb6ef`; since the implementation commit, only documentation/evidence commits have been added. It does **not** substitute for staging verification or production verification.
+This evidence was re-run from a clean local reset at HEAD `e5bb6ef`. A later commit applies whitespace-only normalization to the migration/config/docs files; that normalized tree was re-verified from a clean reset with the same results and is summarized in the [PR body draft](PH0-DB-STORAGE-RELEASE-PR-body.md). It does **not** substitute for staging verification or production verification.
 
 ---
 
