@@ -66,6 +66,7 @@ All CLI commands were run from `backend/`, with `/home/linuxbrew/.linuxbrew/bin`
 | E-12 | Production advisories | `get_advisors` for `security`, `performance`, `health` | Many WARN/INFO findings; health clean. Key findings summarized below. |
 | E-13 | Catalog comparison | Read-only catalog SQL against production MCP and local MCP (`58561`), comparing tables, RLS flags, policies, ACLs via `aclexplode`, functions, indexes, views, sequences, default ACLs, roles, Storage buckets/policies/ACLs/RLS | Large, blocking drift; summarized below. |
 | E-14 | Patch sanity | `git diff --check` | Clean before evidence commit. |
+| E-15 | Exact-SHA clean rebuild | At final HEAD `e5bb6ef`, `supabase db reset --yes --no-seed`, then `supabase migration list`, `supabase test db`, `supabase db advisors --type all --level warn`, `.venv/Scripts/python.exe -m pytest -q`, the effective Storage verifier, and a read-only local catalog snapshot | **PASS**: all 6 migrations reapplied; 36/36 pgTAP tests; 0 WARN-level advisories; 1,368 passed / 1 skipped / 18 warnings; 22/22 Storage checks; catalog showed 3 reviewed buckets, 1 deny policy, 34 tables, 0 tables missing RLS enforcement, and 16 public policies. |
 
 ### 3.1 Local proxy detail
 
@@ -78,7 +79,7 @@ The local stack is not a staging environment. At the operator’s direction it w
 - 3 Storage buckets with exact reviewed public flags, 2 MiB limits and JPEG/PNG/WebP allowlists; 1 `Deny direct client object access` policy.
 - 22/22 effective API checks covered anon/authenticated denial, service-role write/list/sign/delete, public retrieval, cross-tenant listing denial, MIME/size rejection, deterministic upsert, and cleanup.
 
-This evidence does **not** substitute for staging verification or production verification.
+This evidence was re-run from a clean local reset at HEAD `e5bb6ef`; since the implementation commit, only documentation/evidence commits have been added. It does **not** substitute for staging verification or production verification.
 
 ---
 
