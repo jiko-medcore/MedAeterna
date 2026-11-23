@@ -9,8 +9,13 @@ def log_audit_event(
     action: str,
     resource_type: str,
     resource_id: str,
-    metadata: dict | None = None
+    metadata: dict | None = None,
+    organization_id: str | None = None,
 ):
+    audit_metadata = dict(metadata or {})
+    if organization_id is not None:
+        audit_metadata["organization_id"] = str(organization_id)
+
     (
         supabase_admin
         .table("audit_logs")
@@ -20,7 +25,7 @@ def log_audit_event(
             "action": action,
             "resource_type": resource_type,
             "resource_id": resource_id,
-            "metadata": metadata or {}
+            "metadata": audit_metadata,
         })
         .execute()
     )

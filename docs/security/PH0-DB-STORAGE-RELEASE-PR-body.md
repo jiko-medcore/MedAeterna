@@ -21,7 +21,7 @@ Copy the content below into the GitHub PR description. This is a drafting artifa
 
 ## Summary
 
-This PR collects the local Phase 0 application, database, and Storage security remediation for review. It covers backend plan recommended orders 2–7 and the local evidence portion of order 9. It also records the read-only hosted preflight performed for order 8.
+This PR collects the local Phase 0 application, database, and Storage security remediation for review. It covers backend plan recommended orders 2–8 and the local evidence portion of order 9. Order 8 now includes the PH0-WP-08/WP-09 audit and privileged-path review; the read-only hosted SPEC-11/SPEC-12 preflight remains separate evidence.
 
 The change set replaces legacy permissive policies and grants with the reviewed SPEC-11 model, installs the reviewed SPEC-12 bucket configuration and direct-client object deny policy, and hardens the affected backend authorization paths with negative tests. All evidence in this PR is **local**. Production remains unchanged and is **NOT VERIFIED / NOT ACCEPTED**.
 
@@ -29,14 +29,15 @@ The change set replaces legacy permissive policies and grants with the reviewed 
 
 ## 1. Reason
 
-The work addresses the Phase 0 findings tracked under SEC-01–SEC-24 and the PH0-WP-01, WP-02, WP-03, WP-05, WP-06 and WP-07 work packages:
+The work addresses the Phase 0 findings tracked under SEC-01–SEC-24 and the PH0-WP-01, WP-02, WP-03, WP-05, WP-06, WP-07, WP-08 and WP-09 work packages:
 
 - shared authorization defects on sensitive and administrative routes;
 - missing clinical route/service authorization context;
 - weak operational event visibility and retry controls;
 - unresolved policy decisions for consent and patient access;
 - legacy broad table grants, unwrapped `auth.uid()` policies, unsafe definer-function exposure and mutable search paths;
-- incomplete Storage bucket limits/MIME allowlists and no `storage.objects` deny policy.
+- incomplete Storage bucket limits/MIME allowlists and no `storage.objects` deny policy;
+- audit-service organization-scope keyword mismatch, disabled legacy event routes still advertised in OpenAPI, and incomplete privileged-path/background-task evidence.
 
 Policy decisions are taken only from the approved SPEC-01–SPEC-10 documents. Undocumented decisions remain fail-closed.
 
@@ -73,7 +74,7 @@ Migration files present in the reviewed local stack:
 ### Documentation/evidence
 
 - `docs/security/SPEC-01` through `docs/security/SPEC-12`
-- PH0-WP-02, PH0-WP-03, PH0-WP-05, PH0-WP-06 and PH0-WP-07 records
+- PH0-WP-02, PH0-WP-03, PH0-WP-05, PH0-WP-06, PH0-WP-07 and PH0-WP-08/WP-09 records
 - `docs/security/SPEC-11-SPEC-12-hosted-read-only-preflight-record.md`
 
 No patient row data, patient object content, production secret, or production token is included.
@@ -126,7 +127,8 @@ Verified after a clean local rebuild of the whitespace-normalized tree:
 | Migration inventory | `supabase migration list` | 6/6 local migrations applied |
 | Database catalog tests | `supabase test db` | **36/36 passed**; SPEC-02, SPEC-11, SPEC-12 ok |
 | Advisories | `supabase db advisors --type all --level warn` | **No issues found** |
-| Backend regression | `.venv/Scripts/python.exe -m pytest -q` | **1,368 passed, 1 skipped, 18 warnings** |
+| Backend regression | `.venv/Scripts/python.exe -m pytest -q` | **1,372 passed, 1 skipped, 18 warnings** after the order 8 audit/OpenAPI fixes |
+| OpenAPI contract | `from main import app; app.openapi()` and `tests/core/test_openapi_security_contract.py` | **74 paths / 89 operations**; 83 secured, 6 intentionally public; disabled `/events` routes not published |
 | Effective Storage checks | `scripts/verify_local_storage_effective_access.py` | **22/22 passed** against local API `http://127.0.0.1:58561`, synthetic identities/objects only |
 | Patch hygiene | `git diff --check origin/main...HEAD` | Clean |
 | CLI | `supabase --version` | `3.2.0` |
@@ -206,6 +208,7 @@ This PR is for code/design/evidence review only. It is not a production deployme
 - [x] No production secrets or patient data are included
 - [x] Local rebuild is reproducible
 - [x] Local tests and evidence pass on the reviewed tree
+- [x] Audit and privileged-path review recorded; disabled legacy event routes removed from OpenAPI
 - [ ] GitHub CI passes on this PR
 - [ ] Human review approval is recorded
 - [ ] Rollout and recovery plan are approved separately

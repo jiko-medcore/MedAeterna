@@ -476,6 +476,7 @@ def test_legacy_operational_event_routes_stay_disabled(harness, monkeypatch):
     assert [response.status_code for response in responses] == [404, 404, 404, 404]
     assert fake.calls == []
     assert audit_records == []
+    assert not any(path.startswith("/events") for path in app.openapi()["paths"])
 
 
 def test_monitoring_helpers_do_not_select_payloads(harness):

@@ -105,6 +105,8 @@ Implemented on `security/phase-0-db-storage-release` in commit `9977b88`; the au
 
 The hardened admin router is intentionally not mounted by `main.py` in this slice. SEC-09 remains open; see the [PH0-WP-05 completion record](PH0-WP-05-completion-record.md) for the full evidence and limitations.
 
+**Order 8 follow-up (23 November 2026, local):** the seven disabled legacy `/events/*` routes are now hidden from OpenAPI while continuing to return 404, and a contract test asserts that no `/events` path is published. The hardened admin router is still not mounted, the manual-retry allowlist is still empty, and no hosted verification is claimed. See the [PH0-WP-08/WP-09 privileged-path review record](PH0-WP-08-WP-09-privileged-path-review-record.md).
+
 ## Supabase/database enforcement
 
 The future route/service implementation must use an explicit safe projection and trusted organization resolver. Database grants and RLS must independently block direct client reads/writes of event and dead-letter tables. Privileged service-role queries bypass ordinary RLS protections, so they must still apply the same server-side authorization and projection. Supabase's current RLS guide treats grants and policies as separate checks for exposed tables ([RLS guide](https://supabase.com/docs/guides/database/postgres/row-level-security)). SPEC-11 tracks the table-by-table grants and RLS implementation/tests.
