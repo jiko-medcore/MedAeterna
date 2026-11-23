@@ -27,7 +27,7 @@ def mark_failed(event_id: str, reason: str):
     event = (
         supabase_admin
         .table("events")
-        .select("retry_count")
+        .select("id, event_type, aggregate_type, aggregate_id, payload, retry_count")
         .eq("id", event_id)
         .single()
         .execute()

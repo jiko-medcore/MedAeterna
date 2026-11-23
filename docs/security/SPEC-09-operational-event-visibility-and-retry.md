@@ -105,7 +105,7 @@ Implemented on `security/phase-0-db-storage-release` in commit `9977b88`; the au
 
 The hardened admin router is intentionally not mounted by `main.py` in this slice. SEC-09 remains open; see the [PH0-WP-05 completion record](PH0-WP-05-completion-record.md) for the full evidence and limitations.
 
-**Order 8 follow-up (23 November 2026, local):** the seven disabled legacy `/events/*` routes are now hidden from OpenAPI while continuing to return 404, and a contract test asserts that no `/events` path is published. The hardened admin router is still not mounted, the manual-retry allowlist is still empty, and no hosted verification is claimed. See the [PH0-WP-08/WP-09 privileged-path review record](PH0-WP-08-WP-09-privileged-path-review-record.md).
+**Order 8 follow-up (23 November 2026, local):** the seven disabled legacy `/events/*` routes are now hidden from OpenAPI while continuing to return 404, and a contract test asserts that no `/events` path is published. `mark_failed()` now loads the full event scope before dead-lettering, so worker dead-letter rows retain id, type, aggregate, payload and a non-empty audit resource id (regression test added). The hardened admin router is still not mounted, the manual-retry allowlist is still empty, and no hosted verification is claimed. See the [PH0-WP-08/WP-09 privileged-path review record](PH0-WP-08-WP-09-privileged-path-review-record.md).
 
 ## Supabase/database enforcement
 

@@ -18,16 +18,18 @@ router = APIRouter(
 )
 
 
-# ----- Practitioner Role Assignment Router ----- 
+# ----- Practitioner Role Assignment Router -----
 @router.post("/")
 def assign_role(
     payload: PractitionerRoleAssign,
-    user=Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
 
     return assign_practitioner_role(
-        user["id"],
-        payload
+        actor_id=current_user["id"],
+        actor_roles=current_user.get("roles", []),
+        target_practitioner_id=payload.practitioner_id,
+        payload=payload,
     )
 
 
@@ -46,11 +48,12 @@ def my_roles(
 @router.get("/organization/{organization_id}")
 def organization_practitioners(
     organization_id: str,
-    user=Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
 
     return get_organization_practitioners(
-        organization_id
+        actor_roles=current_user.get("roles", []),
+        organization_id=organization_id,
     )
 
 
@@ -59,10 +62,12 @@ def organization_practitioners(
 def update_role(
     role_id: str,
     payload: PractitionerRoleUpdate,
-    user=Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
 
     return update_practitioner_role(
-        role_id,
-        payload
+        actor_id=current_user["id"],
+        actor_roles=current_user.get("roles", []),
+        role_id=role_id,
+        payload=payload,
     )

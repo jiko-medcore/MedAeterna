@@ -12,9 +12,11 @@
 
 **Review date:** 23 November 2026
 
-**Status:** **LOCAL REVIEW COMPLETE — EXIT CONDITION NOT MET — NOT CLOSED, NOT ACCEPTED**
+**Status:** **LOCAL REVIEW COMPLETE — PARTIAL REMEDIATION — EXIT CONDITION NOT MET — NOT CLOSED, NOT ACCEPTED**
 
-> This record documents source review, local catalog evidence, read-only production metadata evidence, and focused/full local regression results. It does not deploy anything, change hosted data, close a SEC finding, or accept Phase 0. No patient row data, token, secret, database connection string, SQL dump, or Storage object content was read or emitted. The three read-only baseline/plan/release-guide files were not modified.
+> This record documents source review, local catalog evidence, read-only production metadata evidence, and focused/full local regression results. It does not deploy code or schema, close a SEC finding, or accept Phase 0. No patient row data, token, secret, database connection string, SQL dump, or Storage object content was read or emitted. The three read-only baseline/plan/release-guide files were not modified.
+>
+> **Incident disclosure:** an initial version of the new practitioner-role tests failed to isolate the shared audit client and wrote **two synthetic audit rows to hosted production**. See [section 11](#11-test-isolation-incident--hosted-production) for exact identifiers, verification, and the fix. No patient data was involved. Those rows were not deleted or altered.
 
 ---
 
@@ -162,7 +164,7 @@ All Python commands ran from `backend/` with `.venv/Scripts/python.exe`; all Sup
 | ID | Check | Result |
 |---|---|---|
 | E-08/09-01 | Focused audit, OpenAPI, SPEC-09 route, branding and organization service tests | **223 passed** |
-| E-08/09-02 | Full backend regression: `-m pytest -q --tb=no -p no:cacheprovider` | **1,372 passed, 1 skipped, 18 warnings** |
+| E-08/09-02 | Full backend regression at review time | **1,372 passed, 1 skipped, 18 warnings** (before §10 remediation; **1,383 passed** after) |
 | E-08/09-03 | OpenAPI generation after fix | **74 paths, 89 operations, 83 secured, 6 intentionally public**; no `/events` paths |
 | E-08/09-04 | Intentionally public operations | `POST /auth/signup`, `POST /auth/login`, `POST /organizations/register`, `POST /organizations/accept-invite`, `GET /`, `GET /health` |
 | E-08/09-05 | Local database tests | `supabase test db`: **3 files, 36 tests, PASS** |
@@ -171,7 +173,7 @@ All Python commands ran from `backend/` with `.venv/Scripts/python.exe`; all Sup
 | E-08/09-08 | Read-only production metadata | Audit/event grants and definer-function exposure drift confirmed; no production data, object content, or logs read |
 | E-08/09-09 | Patch hygiene | `git diff --check` clean at review time |
 
-The full suite count increased from the previously recorded 1,368 to 1,372 because four new focused tests were added in this review (two audit-service tests and two OpenAPI contract tests).
+The review count increased from the previously recorded 1,368 to 1,372 because four new focused tests were added during the review (two audit-service tests and two OpenAPI contract tests). The §10 remediation added 11 more tests (9 practitioner-role authorization, 1 DLQ provenance, 1 onboarding redaction), for 1,383 passing tests overall.
 
 ---
 
@@ -179,14 +181,17 @@ The full suite count increased from the previously recorded 1,368 to 1,372 becau
 
 | Gap | Disposition |
 |---|---|
-| **F-1/F-2: practitioner-role self-assignment, unowned role updates, and unscoped org practitioner listing** | **P0, newly verified.** Live escalation paths in the served app. Require an explicit SPEC-02/SPEC-03 policy decision (route through the audited role-assignment RPC or disable fail-closed). Not fixed in this slice; no policy guessing. |
+| **F-1/F-2: practitioner-role self-assignment, unowned role updates, and unscoped org practitioner listing** | **P0. Remediated locally in §10** using the owner-approved SPEC-02 + org-admin policy. Not deployed; production remains unchanged. |
 | **F-3: anon data-plane operations across patients/records/organizations/reminders/prescriptions/terminology** | **P0 for hosted correctness.** Broken under hardened grants, RLS-intent bypass under legacy production grants. Caller-scoped migration or per-call-site service-role justification required (SPEC-10 open work). |
 | **F-4: organization profile PATCH without org-admin gate** | P1. Authority decision required per SPEC-03; audit is post-write. |
 | **F-5: laboratory/records fetch-before-authorize and `raw` full-row projection** | P1. Reorder to the WP-02 authorize-before-query pattern; remove overexposure. |
 | **F-6: ungated dead privileged helpers (`get_resource_audit_log`, `delete_auth_user`, `EventService.retry_event`, monitoring/metrics)** | P1. Zero production callers verified; remove or gate before any future mounting. |
-| **F-7: patient identifiers logged/printed in patient onboarding** | P1. Redaction remediation required; full-row read should be projected. |
+| **F-7: patient identifiers logged/printed in patient onboarding** | P1. Remediated locally in §10; identifiers, full rows, provider responses and stack traces removed from logs. |
 | **F-8: post-write module audits without compensation** | P1. High-risk audit-failure behavior must be defined per PH0-WP-08; only hardened admin routers are fail-closed today. |
 | **F-9: `scripts/init_db.py` raw-SQL publishable RPC at import time** | P2. Exclude from release tooling or replace with reviewed migrations. |
+| **DLQ provenance defect (second inventory §3)** | P1. `mark_failed()` selected only `retry_count`, so worker dead-lettering produced NULL id/type/aggregate/payload and an empty audit resource id. Fixed locally in §10 with a regression test. |
+| **Invite-token lookup before issuer authority revalidation (O-5)** | P1. Token lookup in the unauthenticated accept-invite flow precedes revalidation of inviter authority; token-oracle surface remains open. No policy guessed. |
+| **Departments list/get lack a membership dependency** | P1. Only `get_current_user` is applied; access relies on RLS under the hardened model and broad legacy grants in production. Needs the same org-access gate used by other organization submodules. |
 | Production `audit_logs`, `events`, and `events_dead_letter` allow ordinary client CRUD/TRUNCATE and are not forced | Blocking drift. Must be fixed only through the reviewed release plan after backup/recovery and exact deployment authorization. |
 | Production `patient_access_grant_audit` and three local definer functions are absent; three legacy definer functions remain client-executable with two mutable search paths | Blocking drift. No repair or revocation attempted here. |
 | Hosted effective anon/authenticated/service-role audit and event tests not run | Production verification remains order 10 / PH0-WP-10 work. |
@@ -203,9 +208,9 @@ The full suite count increased from the previously recorded 1,368 to 1,372 becau
 
 The order 8 review is complete for the local release candidate: audit emission, privileged client construction, sensitive-route groups, event/background paths, OpenAPI declarations, local audit persistence, and read-only production drift are documented. The two concrete defects found early in this review (audit `organization_id` keyword mismatch, legacy event routes advertised in OpenAPI) were fixed and regression-tested locally.
 
-The completed call-site enumeration then verified **additional live gaps (F-1–F-9, §4.3)** — most seriously an authenticated practitioner-role self-assignment escalation and widespread anon data-plane execution. Therefore the order 8 exit condition “Sensitive operations and privileged paths covered” is **NOT MET**, even locally: coverage is now documented, but several privileged paths remain ungated or unjustified and require explicit policy decisions before remediation.
+The completed call-site enumeration then verified **additional live gaps (F-1–F-9, §4.3)** — most seriously an authenticated practitioner-role self-assignment escalation and widespread anon data-plane execution. Therefore the order 8 exit condition “Sensitive operations and privileged paths covered” is **still NOT MET**, even locally: F-1/F-2 were subsequently remediated with owner approval (§10), but F-3–F-6, F-8, F-9, the invite/departments gaps, unmounted hardened admin routers, and hosted drift remain open.
 
-This record does **not** claim that privileged paths are production-safe. Hosted audit history remains unprotected under current production grants, caller-scoped RLS adoption is incomplete, background-worker identity evidence is incomplete, and event retry remains fail-closed. SEC findings remain open, production remains unchanged, and Phase 0 remains **NOT ACCEPTED**.
+This record does **not** claim that privileged paths are production-safe. Hosted audit history remains unprotected under current production grants, caller-scoped RLS adoption is incomplete, background-worker identity evidence is incomplete, and event retry remains fail-closed, and the two synthetic audit rows described in §11 remain in hosted production pending an owner decision. SEC findings remain open, production code/schema is unchanged, and Phase 0 remains **NOT ACCEPTED**.
 
 ---
 
@@ -222,3 +227,52 @@ This record does **not** claim that privileged paths are production-safe. Hosted
 - [PH0-WP-05 completion record](PH0-WP-05-completion-record.md)
 - [PH0-WP-07 completion record](PH0-WP-07-completion-record.md)
 - [PH0-WP-10 backup and recovery gate record](PH0-WP-10-backup-recovery-gate-record.md)
+
+---
+
+## 10. Post-review remediation (local only)
+
+### 10.1 Owner decision and practitioner-role gating (F-1/F-2)
+
+On 23 November 2026 the designated owner chose **“Gate via SPEC-02 + org admin”** for the practitioner-role escalation. The following local changes implement that decision:
+
+| Change | Files | Effect |
+|---|---|---|
+| Added `authorize_practitioner_role_change()` and `authorize_practitioner_role_read()` | `backend/app/core/role_assignment_policy.py` | Reuses the SPEC-02 delegation rule: organization administrator for the **exact target organization**, no self-assignment, `assign`/`update` only. Listing requires the same scoped org-admin authority. |
+| Required `practitioner_id` on role-assignment requests | `backend/app/modules/practitioner_roles/schemas.py`, `router.py` | **Breaking API change:** `POST /practitioner-roles/` no longer assigns a role to the caller. An org admin must name the target practitioner. No frontend caller was found in this repository. |
+| Reordered and constrained all privileged operations | `backend/app/modules/practitioner_roles/service.py` | Authorization runs before every privileged query/write; target practitioner existence is checked; audit is written **before** the role mutation and fails closed; `PATCH` resolves the stored organization first and constrains the update with `.eq("organization_id", ...)`; organization listings omit practitioner email/phone; self `/me` projection no longer uses `select("*")`. |
+| Added explicit audit actions | `backend/app/core/audit/actions.py` | `PRACTITIONER_ROLE_ASSIGNED`, `PRACTITIONER_ROLE_UPDATED`. |
+| Added negative/positive tests | `backend/tests/core/test_practitioner_role_authorization.py` | 9 tests: non-admin, cross-org admin, self-grant, audit-before-write, audit-failure blocks write, unowned update denial, org-constrained update, unscoped listing denial, contact-data omission. |
+
+### 10.2 Other verified defects fixed locally
+
+| Defect | Fix | Test |
+|---|---|---|
+| Worker dead-lettering lost provenance (`mark_failed()` selected only `retry_count`, producing NULL DLQ id/type/aggregate/payload and an empty audit resource id) | `app/core/events/state.py` now selects `id, event_type, aggregate_type, aggregate_id, payload, retry_count` before the transition | `tests/core/test_event_dead_letter_integrity.py` asserts full DLQ fields and audit `resource_id` |
+| Patient onboarding logged/printed patient id, email, full patient row, provider response and a full call stack; raw exception text was stored as the last error | `app/modules/patients/onboarding.py` removes those logs/prints and stores normalized error codes (`invalid_email`, `email_delivery_failed`) | `tests/core/test_onboarding_log_redaction.py` asserts none of the synthetic identifiers/row markers appear in captured logs |
+
+### 10.3 Verification after remediation
+
+| Check | Result |
+|---|---|
+| Focused tests (practitioner roles, DLQ integrity, onboarding redaction) | **11 passed** |
+| Full backend regression | **1,383 passed, 1 skipped, 18 warnings** |
+| Hosted read-only audit recheck (count by action, last 24 h) | Still only the two pre-existing synthetic rows described in §11; no new rows after the isolation fix |
+
+None of these changes were deployed. The order 8 exit condition remains unmet for the reasons in §7.
+
+---
+
+## 11. Test-isolation incident — hosted production
+
+**Disclosure:** two synthetic audit rows were written to hosted production `iyueixtpmzznyffshqon` during the first run of the new practitioner-role tests. This was not a deployment and did not involve patient data, but it was a hosted data mutation and it violated the controlled-release constraint.
+
+| Field | Value |
+|---|---|
+| Cause | The first test version patched only `app.modules.practitioner_roles.service.supabase_admin`. `log_audit_event()` resolves its own module-level `supabase_admin`, and `backend/.env` sets `SUPABASE_URL` to the hosted production project, so two audit inserts reached production. |
+| Row 1 (read-only verified) | id `5c953fbc-83ce-4564-8ad7-b8804c755959`, action `PRACTITIONER_ROLE_UPDATED`, actor `33333333-3333-4333-8333-333333333333`, resource `55555555-5555-4555-8555-555555555555`, created `2026-11-23 15:52:33.519817+00` |
+| Row 2 (read-only verified) | id `f8958699-8adf-4710-9707-20100f485136`, action `PRACTITIONER_ROLE_ASSIGNED`, same synthetic actor, resource `44444444-4444-4444-8444-444444444444`, created `2026-11-23 15:52:31.856152+00` |
+| Data involved | Synthetic UUIDs and role codes only. No patient, clinician, organization, or Storage data was read or written. |
+| Verification | Read-only MCP SQL queries filtered to the synthetic actor and to the two action names; a 24-hour count by action returned exactly these two rows. |
+| Containment | Tests now patch both client references through `patch_clients()`; focused and full suites were re-run and the hosted row count did not change. |
+| Outstanding | The two rows were **not deleted or altered**. Removing or correcting hosted audit history is itself a privileged mutation and requires explicit owner approval. This incident does not close a SEC finding, authorize deployment, or change the Phase 0 status. |

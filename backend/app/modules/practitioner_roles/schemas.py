@@ -5,6 +5,9 @@ from datetime import datetime
 
 # ----- Practitioners Role Assignment Model -----
 class PractitionerRoleAssign(BaseModel):
+    # SPEC-02 gating: an organization administrator assigns this to a target
+    # practitioner; self-assignment is no longer accepted.
+    practitioner_id: str
     organization_id: str
     role_code: str
     specialty_code: Optional[str] = None
