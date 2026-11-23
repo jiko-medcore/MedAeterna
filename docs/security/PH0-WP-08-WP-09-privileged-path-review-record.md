@@ -275,4 +275,4 @@ None of these changes were deployed. The order 8 exit condition remains unmet fo
 | Data involved | Synthetic UUIDs and role codes only. No patient, clinician, organization, or Storage data was read or written. |
 | Verification | Read-only MCP SQL queries filtered to the synthetic actor and to the two action names; a 24-hour count by action returned exactly these two rows. |
 | Containment | Tests now patch both client references through `patch_clients()`; focused and full suites were re-run and the hosted row count did not change. |
-| Outstanding | The two rows were **not deleted or altered**. Removing or correcting hosted audit history is itself a privileged mutation and requires explicit owner approval. This incident does not close a SEC finding, authorize deployment, or change the Phase 0 status. |
+| Outstanding / owner decision | On 23 November 2026 the owner decided to **leave the two rows in place and document only**. They were not deleted or altered, and no further hosted mutation was performed for this incident. This does not close a SEC finding, authorize deployment, or change the Phase 0 status. |
