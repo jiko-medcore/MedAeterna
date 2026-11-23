@@ -157,7 +157,7 @@ Deployment of this change set is security-sensitive and may affect application c
 - `patient-avatars` is added;
 - direct client object access is denied by RLS.
 
-Application paths that relied on legacy broad client privileges must be reviewed before any rollout. Production drift is documented in `docs/security/SPEC-11-SPEC-12-hosted-read-only-preflight-record.md` and includes broad grants, legacy policies, mutable search paths, client-executable definer functions, missing migrations, unhardened Storage settings and a missing deny policy.
+Application paths that relied on legacy broad client privileges must be reviewed before any rollout. The order 8 review (`docs/security/PH0-WP-08-WP-09-privileged-path-review-record.md`) verified that many query services still execute as the shared anon client with no caller JWT (finding F-3): those paths will fail under the hardened grants in this PR and require caller-scoped migration or justified service-role gating first. The same review documented live authorization gaps (F-1/F-2 practitioner-role self-assignment and unowned updates, F-4 org-profile PATCH authority, F-5 fetch-before-authorize ordering) that remain open and block the order 8 exit condition. Production drift is documented in `docs/security/SPEC-11-SPEC-12-hosted-read-only-preflight-record.md` and includes broad grants, legacy policies, mutable search paths, client-executable definer functions, missing migrations, unhardened Storage settings and a missing deny policy.
 
 ---
 
@@ -209,6 +209,7 @@ This PR is for code/design/evidence review only. It is not a production deployme
 - [x] Local rebuild is reproducible
 - [x] Local tests and evidence pass on the reviewed tree
 - [x] Audit and privileged-path review recorded; disabled legacy event routes removed from OpenAPI
+- [ ] Order 8 exit condition met — blocked by verified findings F-1–F-9 (practitioner-role escalation, anon data-plane paths, ungated helpers); policy decisions required
 - [ ] GitHub CI passes on this PR
 - [ ] Human review approval is recorded
 - [ ] Rollout and recovery plan are approved separately
