@@ -93,4 +93,8 @@ def resolve_condition(
         raise HTTPException(status_code=404, detail="Condition not found")
     patient_id = str(rows[0]["patient_id"])
     current_user = _authorize_record_write(current_user, patient_id, "resolve_condition")
-    return resolve_condition_record(record_id, current_user)
+    return resolve_condition_record(
+        record_id,
+        current_user,
+        patient_id=patient_id,
+    )

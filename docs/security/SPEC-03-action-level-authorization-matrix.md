@@ -12,6 +12,8 @@ This matrix does not make organization membership a patient-care relationship. S
 
 The policy registry in backend/app/core/action_authorization.py is an executable reference for the role/action part of a decision. It does not access the database, verify relationship facts, or secure a route by itself. A future route guard must obtain required condition results from trusted application logic and apply this decision before using a privileged backend client. Phase 0 SEC findings for missing or incomplete route authorization remain open until route-level tests and evidence close them.
 
+**Order 8 follow-up (23 November 2026, local):** the organization-configuration row for profile updates is now enforced at `PATCH /organizations/profile` by an exact-scope SPEC-01/SPEC-02 organization-administrator check, with the organization resolved from trusted role context and the audit record written before mutation. Multi-organization administrators fail closed on this self-scoped route. The SPEC-03 matrix itself is unchanged; see the [PH0-WP-08/WP-09 review record](PH0-WP-08-WP-09-privileged-path-review-record.md) §12. Not deployed; production unchanged.
+
 ## Decision rules
 
 - A role is evaluated by its SPEC-01 category and exact scope. Unmapped roles confer no action.

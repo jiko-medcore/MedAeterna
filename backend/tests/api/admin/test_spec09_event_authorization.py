@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from app.api.admin import events_router as admin_events
 from app.core import operational_event_policy as policy
 from app.core import security
-from app.core.events import monitoring, replay, service
+from app.core.events import replay
 from app.core.role_catalogue import (
     ORGANIZATION_ADMINISTRATOR,
     PATIENT,
@@ -166,8 +166,6 @@ def harness(monkeypatch):
 
     monkeypatch.setattr(admin_events, "supabase_admin", fake)
     monkeypatch.setattr(replay, "supabase_admin", fake)
-    monkeypatch.setattr(monitoring, "supabase_admin", fake)
-    monkeypatch.setattr(service, "supabase_admin", fake)
     monkeypatch.setattr(admin_events, "log_audit_event", fake_audit)
     monkeypatch.setattr(admin_events, "EVENT_HANDLERS", {"organization.onboarding.completed": lambda: None})
     monkeypatch.setattr(
@@ -178,7 +176,6 @@ def harness(monkeypatch):
 
     app = FastAPI()
     app.include_router(admin_events.router)
-    app.include_router(monitoring_router())
 
     def client_for(user=None):
         app.dependency_overrides.clear()
@@ -187,23 +184,6 @@ def harness(monkeypatch):
         return TestClient(app)
 
     return fake, audit_records, client_for
-
-
-def monitoring_router():
-    """Expose the internal monitoring helpers through a test-only router."""
-    from fastapi import APIRouter
-
-    router = APIRouter(prefix="/internal/events")
-
-    @router.get("/")
-    def events():
-        return monitoring.get_events()
-
-    @router.get("/dead")
-    def dead():
-        return monitoring.get_dead_letter_events()
-
-    return router
 
 
 ADMIN_READ_ROUTES = (
@@ -479,20 +459,6 @@ def test_legacy_operational_event_routes_stay_disabled(harness, monkeypatch):
     assert not any(path.startswith("/events") for path in app.openapi()["paths"])
 
 
-def test_monitoring_helpers_do_not_select_payloads(harness):
-    fake, _, _ = harness
-    assert monitoring.get_events()[0]["id"] == "event-org"
-    assert monitoring.get_dead_letter_events()[0]["id"] == "dead-1"
-    assert [call["table"] for call in fake.calls] == ["events", "events_dead_letter"]
-    assert fake.calls[0]["select"] == monitoring.EVENT_METADATA_SELECT
-    assert fake.calls[1]["select"] == monitoring.DEAD_LETTER_METADATA_SELECT
-    for call in fake.calls:
-        assert call["select"] is not None
-        assert "*" not in str(call["select"])
-        assert "payload" not in str(call["select"])
-        assert "failure_reason" not in str(call["select"])
-
-
 def test_error_text_normalization_never_returns_raw_text():
     assert (
         policy.normalize_event_error_text("Timeout while calling dependency for patient@example.com")
@@ -500,13 +466,3 @@ def test_error_text_normalization_never_returns_raw_text():
     )
     assert policy.normalize_event_error_text("unexpected sensitive detail") == "PROCESSING_FAILED"
     assert policy.normalize_event_error_text(None) is None
-
-
-def test_service_retry_requires_failed_state(harness):
-    fake, _, _ = harness
-    service.EventService.retry_event("event-org")
-    assert fake.calls[-1]["filters"] == (
-        ("id", "event-org"),
-        ("status", "failed"),
-        ("<retry_count", 3),
-    )

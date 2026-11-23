@@ -127,7 +127,7 @@ Verified after a clean local rebuild of the whitespace-normalized tree:
 | Migration inventory | `supabase migration list` | 6/6 local migrations applied |
 | Database catalog tests | `supabase test db` | **36/36 passed**; SPEC-02, SPEC-11, SPEC-12 ok |
 | Advisories | `supabase db advisors --type all --level warn` | **No issues found** |
-| Backend regression | `.venv/Scripts/python.exe -m pytest -q` | **1,383 passed, 1 skipped, 18 warnings** after order 8 review and remediation |
+| Backend regression | `.venv/Scripts/python.exe -m pytest -q` | **1,394 passed, 1 skipped, 18 warnings** after the order 8 review and both remediation batches |
 | OpenAPI contract | `from main import app; app.openapi()` and `tests/core/test_openapi_security_contract.py` | **74 paths / 89 operations**; 83 secured, 6 intentionally public; disabled `/events` routes not published |
 | Effective Storage checks | `scripts/verify_local_storage_effective_access.py` | **22/22 passed** against local API `http://127.0.0.1:58561`, synthetic identities/objects only |
 | Patch hygiene | `git diff --check origin/main...HEAD` | Clean |
@@ -157,7 +157,7 @@ Deployment of this change set is security-sensitive and may affect application c
 - `patient-avatars` is added;
 - direct client object access is denied by RLS.
 
-Application paths that relied on legacy broad client privileges must be reviewed before any rollout. The order 8 review (`docs/security/PH0-WP-08-WP-09-privileged-path-review-record.md`) verified that many query services still execute as the shared anon client with no caller JWT (finding F-3): those paths will fail under the hardened grants in this PR and require caller-scoped migration or justified service-role gating first. The same review documented live authorization gaps (F-1/F-2 practitioner-role self-assignment and unowned updates, F-4 org-profile PATCH authority, F-5 fetch-before-authorize ordering). F-1/F-2 were remediated locally under owner approval by applying the SPEC-02 org-admin delegation rule; this is a **breaking API change**: `POST /practitioner-roles/` now requires a target `practitioner_id` instead of self-assigning. F-4, F-5, F-3, and the remaining findings still block the order 8 exit condition.
+Application paths that relied on legacy broad client privileges must be reviewed before any rollout. The order 8 review (`docs/security/PH0-WP-08-WP-09-privileged-path-review-record.md`) verified that many query services still execute as the shared anon client with no caller JWT (finding F-3): those paths will fail under the hardened grants in this PR and require caller-scoped migration or justified service-role gating first. The same review documented live authorization gaps (F-1/F-2 practitioner-role self-assignment and unowned updates, F-4 org-profile PATCH authority, F-5 fetch-before-authorize ordering). F-1/F-2 were remediated locally under owner approval by applying the SPEC-02 org-admin delegation rule; this is a **breaking API change**: `POST /practitioner-roles/` now requires a target `practitioner_id` instead of self-assigning. F-4 (org-profile PATCH authority), F-5 (authorize-before-fetch and safe clinical projections), and F-6 (dead privileged helpers removed) were also remediated locally in the second bounded batch. F-3, F-8, F-9, the invite/departments ordering gaps, unmounted admin routers, worker-identity evidence, and hosted drift still block the order 8 exit condition.
 
 **Incident disclosure:** two synthetic audit rows were written to hosted production by an initial, insufficiently isolated version of the practitioner-role tests; they were read-only verified, left in place per owner decision (23 November 2026), and documented only. See review record §11. Production drift is documented in `docs/security/SPEC-11-SPEC-12-hosted-read-only-preflight-record.md` and includes broad grants, legacy policies, mutable search paths, client-executable definer functions, missing migrations, unhardened Storage settings and a missing deny policy.
 
@@ -211,7 +211,7 @@ This PR is for code/design/evidence review only. It is not a production deployme
 - [x] Local rebuild is reproducible
 - [x] Local tests and evidence pass on the reviewed tree
 - [x] Audit and privileged-path review recorded; disabled legacy event routes removed from OpenAPI
-- [ ] Order 8 exit condition met — blocked by remaining verified findings F-3–F-6, F-8, F-9 and hosted drift; F-1/F-2 remediated locally
+- [ ] Order 8 exit condition met — blocked by F-3, F-8, F-9, invite/departments gaps, worker identity, unmounted admin routers, and hosted drift; F-1/F-2/F-4/F-5/F-6 remediated locally but not deployed
 - [ ] GitHub CI passes on this PR
 - [ ] Human review approval is recorded
 - [ ] Rollout and recovery plan are approved separately

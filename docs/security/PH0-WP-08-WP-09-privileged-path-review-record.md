@@ -164,7 +164,7 @@ All Python commands ran from `backend/` with `.venv/Scripts/python.exe`; all Sup
 | ID | Check | Result |
 |---|---|---|
 | E-08/09-01 | Focused audit, OpenAPI, SPEC-09 route, branding and organization service tests | **223 passed** |
-| E-08/09-02 | Full backend regression at review time | **1,372 passed, 1 skipped, 18 warnings** (before §10 remediation; **1,383 passed** after) |
+| E-08/09-02 | Full backend regression at review time | **1,372 passed, 1 skipped, 18 warnings** (before §10 remediation; **1,383 passed** after §10; **1,394 passed** after §12) |
 | E-08/09-03 | OpenAPI generation after fix | **74 paths, 89 operations, 83 secured, 6 intentionally public**; no `/events` paths |
 | E-08/09-04 | Intentionally public operations | `POST /auth/signup`, `POST /auth/login`, `POST /organizations/register`, `POST /organizations/accept-invite`, `GET /`, `GET /health` |
 | E-08/09-05 | Local database tests | `supabase test db`: **3 files, 36 tests, PASS** |
@@ -173,7 +173,7 @@ All Python commands ran from `backend/` with `.venv/Scripts/python.exe`; all Sup
 | E-08/09-08 | Read-only production metadata | Audit/event grants and definer-function exposure drift confirmed; no production data, object content, or logs read |
 | E-08/09-09 | Patch hygiene | `git diff --check` clean at review time |
 
-The review count increased from the previously recorded 1,368 to 1,372 because four new focused tests were added during the review (two audit-service tests and two OpenAPI contract tests). The §10 remediation added 11 more tests (9 practitioner-role authorization, 1 DLQ provenance, 1 onboarding redaction), for 1,383 passing tests overall.
+The review count increased from the previously recorded 1,368 to 1,372 because four new focused tests were added during the review (two audit-service tests and two OpenAPI contract tests). The §10 remediation added 11 more tests (9 practitioner-role authorization, 1 DLQ provenance, 1 onboarding redaction), for 1,383 passing tests overall. The §12 batch added 13 tests and removed 2 obsolete helper tests, for 1,394 passing tests overall.
 
 ---
 
@@ -183,9 +183,9 @@ The review count increased from the previously recorded 1,368 to 1,372 because f
 |---|---|
 | **F-1/F-2: practitioner-role self-assignment, unowned role updates, and unscoped org practitioner listing** | **P0. Remediated locally in §10** using the owner-approved SPEC-02 + org-admin policy. Not deployed; production remains unchanged. |
 | **F-3: anon data-plane operations across patients/records/organizations/reminders/prescriptions/terminology** | **P0 for hosted correctness.** Broken under hardened grants, RLS-intent bypass under legacy production grants. Caller-scoped migration or per-call-site service-role justification required (SPEC-10 open work). |
-| **F-4: organization profile PATCH without org-admin gate** | P1. Authority decision required per SPEC-03; audit is post-write. |
-| **F-5: laboratory/records fetch-before-authorize and `raw` full-row projection** | P1. Reorder to the WP-02 authorize-before-query pattern; remove overexposure. |
-| **F-6: ungated dead privileged helpers (`get_resource_audit_log`, `delete_auth_user`, `EventService.retry_event`, monitoring/metrics)** | P1. Zero production callers verified; remove or gate before any future mounting. |
+| **F-4: organization profile PATCH without org-admin gate** | **P1. Remediated locally in §12**: SPEC-03 org-admin gate, audit before write, no anon membership lookup. Not deployed. |
+| **F-5: laboratory/records fetch-before-authorize and `raw` full-row projection** | **P1. Remediated locally in §12**: minimal scope read, authorization before clinical fetch, constrained writes and safe projections. Not deployed. |
+| **F-6: ungated dead privileged helpers (`get_resource_audit_log`, `delete_auth_user`, `EventService.retry_event`, monitoring/metrics)** | **P1. Remediated locally in §12**: all zero-caller helpers removed; no production source references remain. Not deployed. |
 | **F-7: patient identifiers logged/printed in patient onboarding** | P1. Remediated locally in §10; identifiers, full rows, provider responses and stack traces removed from logs. |
 | **F-8: post-write module audits without compensation** | P1. High-risk audit-failure behavior must be defined per PH0-WP-08; only hardened admin routers are fail-closed today. |
 | **F-9: `scripts/init_db.py` raw-SQL publishable RPC at import time** | P2. Exclude from release tooling or replace with reviewed migrations. |
@@ -208,9 +208,9 @@ The review count increased from the previously recorded 1,368 to 1,372 because f
 
 The order 8 review is complete for the local release candidate: audit emission, privileged client construction, sensitive-route groups, event/background paths, OpenAPI declarations, local audit persistence, and read-only production drift are documented. The two concrete defects found early in this review (audit `organization_id` keyword mismatch, legacy event routes advertised in OpenAPI) were fixed and regression-tested locally.
 
-The completed call-site enumeration then verified **additional live gaps (F-1–F-9, §4.3)** — most seriously an authenticated practitioner-role self-assignment escalation and widespread anon data-plane execution. Therefore the order 8 exit condition “Sensitive operations and privileged paths covered” is **still NOT MET**, even locally: F-1/F-2 were subsequently remediated with owner approval (§10), but F-3–F-6, F-8, F-9, the invite/departments gaps, unmounted hardened admin routers, and hosted drift remain open.
+The completed call-site enumeration then verified **additional live gaps (F-1–F-9, §4.3)** — most seriously an authenticated practitioner-role self-assignment escalation and widespread anon data-plane execution. Therefore the order 8 exit condition “Sensitive operations and privileged paths covered” is **still NOT MET**, even locally: F-1/F-2 were remediated with owner approval (§10), F-4/F-5/F-6 were remediated locally (§12), but F-3, F-8, F-9, the invite/departments gaps, unmounted hardened admin routers, and hosted drift remain open.
 
-This record does **not** claim that privileged paths are production-safe. Hosted audit history remains unprotected under current production grants, caller-scoped RLS adoption is incomplete, background-worker identity evidence is incomplete, and event retry remains fail-closed, and the two synthetic audit rows described in §11 remain in hosted production pending an owner decision. SEC findings remain open, production code/schema is unchanged, and Phase 0 remains **NOT ACCEPTED**.
+This record does **not** claim that privileged paths are production-safe. Hosted audit history remains unprotected under current production grants, caller-scoped RLS adoption is incomplete, background-worker identity evidence is incomplete, and event retry remains fail-closed. The two synthetic audit rows described in §11 remain in hosted production by owner decision. SEC findings remain open, production code/schema is unchanged, and Phase 0 remains **NOT ACCEPTED**.
 
 ---
 
@@ -276,3 +276,46 @@ None of these changes were deployed. The order 8 exit condition remains unmet fo
 | Verification | Read-only MCP SQL queries filtered to the synthetic actor and to the two action names; a 24-hour count by action returned exactly these two rows. |
 | Containment | Tests now patch both client references through `patch_clients()`; focused and full suites were re-run and the hosted row count did not change. |
 | Outstanding / owner decision | On 23 November 2026 the owner decided to **leave the two rows in place and document only**. They were not deleted or altered, and no further hosted mutation was performed for this incident. This does not close a SEC finding, authorize deployment, or change the Phase 0 status. |
+
+---
+
+## 12. Second bounded remediation batch (local only)
+
+### 12.1 F-4 — organization profile PATCH
+
+SPEC-03 permits organization administrators to update their own organization configuration. The local implementation now enforces that rule in trusted role context instead of relying on an unscoped membership lookup:
+
+| Change | Files | Effect |
+|---|---|---|
+| Added `resolve_single_org_admin_organization_id()` and `authorize_organization_admin()` | `backend/app/core/role_assignment_policy.py` | Self-scoped admin routes resolve exactly one organization-admin organization and fail closed for zero or multiple; writes require the exact target organization. |
+| Gated the PATCH route | `backend/app/modules/organizations/profile/router.py` | No longer calls the shared publishable `get_user_organization_id()` before the admin check. The organization is derived from trusted `get_current_user()` role assignments. |
+| Fail-closed service write | `backend/app/modules/organizations/profile/service.py` | Authorization precedes the organization lookup and write; `log_audit_event()` is recorded **before** the update and includes `organization_id` in metadata. |
+| Regression tests | `backend/tests/core/test_f4_organization_profile_authorization.py` (5 tests) | Non-admin and cross-org denial before any query, audit-before-write, router org resolution, and multi-organization fail-closed. |
+
+### 12.2 F-5 — laboratory and records
+
+| Change | Files | Effect |
+|---|---|---|
+| Two-stage lab read | `backend/app/modules/laboratory/service.py` | A minimal `id, patient_id` scope read is followed by `require_patient_access()`; only then are approved detail fields loaded. The `raw` full-row projection and all undeclared fields are removed. |
+| Authorized condition resolution | `backend/app/modules/records/service.py`, `router.py` | The router passes the already-resolved patient id; the service reauthorizes it before fetching `clinical_data`, constrains the clinical read and update by `id`, `patient_id`, and `record_type`, and retains a minimal standalone scope path for non-router callers. |
+| Reduced medical-history overfetch | `backend/app/modules/records/service.py` | `fetch_medical_records()` selects only the six fields the formatter uses instead of `select("*")`. |
+| Regression tests | `backend/tests/core/test_f5_clinical_authorization_order.py` (5 tests) | Query/auth ordering, denial before clinical fetch, absence of `raw`/extra fields, constrained clinical read and update, and no wildcard history projection. |
+
+### 12.3 F-6 — dead privileged helpers
+
+Verified zero production callers before removal. Deleted `app/core/audit/query.py`, `app/core/events/metrics.py`, `app/core/events/monitoring.py`, and `app/modules/auth/admin_service.py`; removed the unused `EventService.retry_event()` method and its now-unnecessary client/status imports. The test-only monitoring router and the obsolete retry-helper assertion were removed from `tests/api/admin/test_spec09_event_authorization.py`. A new test asserts the modules are unimportable, the method is absent, and no production source references remain.
+
+### 12.4 Verification after the second batch
+
+| Check | Result |
+|---|---|
+| Focused tests (F-4/F-5/F-6 plus touched existing suites) | **52 passed** |
+| Full backend regression | **1,394 passed, 1 skipped, 18 warnings** |
+| Local database catalog tests | `supabase test db`: **3 files, 36 tests, PASS** |
+| Local database advisors | `supabase db advisors --type all --level warn`: **No issues found** |
+| OpenAPI contract | **74 paths / 89 operations**, 83 secured, 6 intentionally public; no `/events` path published |
+| Hosted read-only audit count (last 24 h) | Still exactly the two pre-existing synthetic rows from §11; no new rows after this batch |
+| Patch hygiene | `git diff --check` clean |
+| Production deployment | None. Code/schema unchanged, nothing pushed, gates remain closed. |
+
+The order 8 exit condition remains **NOT MET** because F-3, F-8, F-9, the invite/departments ordering gaps, unmounted hardened admin routers, worker-identity evidence, and hosted production drift remain open.

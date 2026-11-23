@@ -145,3 +145,45 @@ def authorize_practitioner_role_read(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="An administrator for this organization is required",
         )
+
+
+def resolve_single_org_admin_organization_id(
+    actor_roles: list[dict],
+) -> str:
+    """Resolve an unambiguous organization for self-scoped admin routes.
+
+    Routes with no organization path/query parameter must not guess when a user
+    administers multiple organizations. Fail closed instead.
+    """
+    organization_ids = {
+        str(role["organization_id"])
+        for role in actor_roles
+        if role.get("category") == ORGANIZATION_ADMINISTRATOR
+        and role.get("organization_id")
+    }
+    if len(organization_ids) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="An unambiguous organization context is required",
+        )
+    return next(iter(organization_ids))
+
+
+def authorize_organization_admin(
+    *,
+    actor_roles: list[dict],
+    organization_id: str,
+) -> None:
+    """Require organization-admin authority for the exact organization."""
+    if not str(organization_id).strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Organization context required",
+        )
+    if not has_scoped_category(
+        actor_roles, ORGANIZATION_ADMINISTRATOR, organization_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="An administrator for this organization is required",
+        )

@@ -1,4 +1,5 @@
 from pytest_mock import MockerFixture
+from tests.factories.constants import ORGANIZATION_ID
 from tests.factories.user import USER_ID
 
 
@@ -57,13 +58,6 @@ def test_update_profile(
     updated_organization_profile_data,
     mocker,
 ):
-    mock_get_org = mocker.patch(
-        "app.modules.organizations.profile.router.get_user_organization_id",
-        return_value=str(
-            updated_organization_profile_data["id"]
-        ),
-    )
-
     mock_update = mocker.patch(
         "app.modules.organizations.profile.router.update_profile",
         return_value=updated_organization_profile_data,
@@ -82,12 +76,9 @@ def test_update_profile(
 
     assert body["name"] == "Updated Hospital"
 
-    mock_get_org.assert_called_once_with(USER_ID)
-
     mock_update.assert_called_once_with(
-        organization_id=str(
-            updated_organization_profile_data["id"]
-        ),
+        organization_id=str(ORGANIZATION_ID),
         payload=mocker.ANY,
         actor_id=USER_ID,
+        actor_roles=mocker.ANY,
     )

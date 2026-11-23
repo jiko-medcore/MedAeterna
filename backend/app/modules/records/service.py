@@ -40,11 +40,39 @@ def create_record(data, clinician_id: str):
     return (response.data or [None])[0]
 
 
-def resolve_condition_record(record_id: str, current_user: dict) -> dict:
+def resolve_condition_record(
+    record_id: str,
+    current_user: dict,
+    *,
+    patient_id: str | None = None,
+) -> dict:
+    """Authorize the patient before loading clinical data for resolution.
+
+    ``patient_id`` may be supplied by a router that already performed a minimal
+    scope-resolution read and its own permission check. It is reauthorized here
+    before the clinical record is fetched, so callers cannot bypass the patient
+    access contract by supplying an arbitrary id.
+    """
+    if patient_id is None:
+        scope = (
+            supabase.table("medical_records")
+            .select("id, patient_id")
+            .eq("id", record_id)
+            .eq("record_type", "condition")
+            .limit(1)
+            .execute()
+        ).data or []
+        if not scope:
+            raise HTTPException(status_code=404, detail="Condition not found")
+        patient_id = str(scope[0]["patient_id"])
+
+    require_patient_access(patient_id, current_user)
+
     records = (
         supabase.table("medical_records")
         .select("id, patient_id, clinical_data")
         .eq("id", record_id)
+        .eq("patient_id", str(patient_id))
         .eq("record_type", "condition")
         .limit(1)
         .execute()
@@ -54,8 +82,6 @@ def resolve_condition_record(record_id: str, current_user: dict) -> dict:
         raise HTTPException(status_code=404, detail="Condition not found")
 
     record = records[0]
-    require_patient_access(record["patient_id"], current_user)
-
     data = record.get("clinical_data") or {}
     data.setdefault("clinicalStatus", {}).setdefault("coding", [])
     data["clinicalStatus"]["coding"] = [
@@ -71,6 +97,8 @@ def resolve_condition_record(record_id: str, current_user: dict) -> dict:
         supabase.table("medical_records")
         .update({"clinical_data": data})
         .eq("id", record_id)
+        .eq("patient_id", str(patient_id))
+        .eq("record_type", "condition")
         .execute()
     )
     if not update.data:
@@ -79,9 +107,12 @@ def resolve_condition_record(record_id: str, current_user: dict) -> dict:
 
 
 def fetch_medical_records(patient_id: str):
+    # Medical history formats only these fields; do not overfetch clinical rows.
     response = (
         supabase.table("medical_records")
-        .select("*")
+        .select(
+            "id, created_at, facility_name, provider_name, record_type, summary"
+        )
         .eq("patient_id", patient_id)
         .execute()
     )
