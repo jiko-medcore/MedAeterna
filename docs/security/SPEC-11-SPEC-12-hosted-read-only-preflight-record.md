@@ -235,3 +235,4 @@ Advisor snapshot observed at `2026-11-22T13:48:55Z`:
 - [SPEC-12 — storage bucket and object access](SPEC-12-storage-bucket-and-object-access.md)
 - [PH0-WP-03 completion record](PH0-WP-03-completion-record.md)
 - [PH0-WP-07 completion record](PH0-WP-07-completion-record.md)
+- [PH0-WP-10 backup, recovery and release-gate record](PH0-WP-10-backup-recovery-gate-record.md)

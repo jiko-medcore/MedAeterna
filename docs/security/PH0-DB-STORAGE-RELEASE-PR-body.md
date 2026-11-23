@@ -15,6 +15,8 @@ Copy the content below into the GitHub PR description. This is a drafting artifa
 - **Implementation commit:** `e5bb6ef` (followed by evidence and whitespace-cleanup commits)
 - **Production status:** no production change; no deployment authorization implied by this PR
 
+> **Correction to GitHub state:** PR #41 was created with `head=main` and `base=docs/phase-0-security-plan-v2-and-backend-ci`, which is the reverse of the intended release PR. It merged `main` into the docs branch; it did **not** merge `security/phase-0-db-storage-release` into `main`. GitHub currently reports `main = 4a5941c859ce6b1197c9cc2689715f08eb2f24ed` and remote `security/phase-0-db-storage-release = 0066602afac41662eb6c79f877049d0b6fb39ed9`, with the branches diverged 19/3. Do not treat PR #41 as the release merge; close or supersede it and open a correctly oriented PR after pushing the local cleanup commits.
+
 ---
 
 ## Summary
