@@ -24,6 +24,8 @@ This catalog is derived from the checked-in Flutter patient app and FastAPI rout
 
 The app also stores local history and caches profile/history for offline display. Those local operations do not call backend routes.
 
+Patient avatars are private objects. `profile_image_url` and dashboard `avatarUrl` remain the outward field names, but their values are short-lived signed URLs generated after authorization. Clients should refetch the profile or summary to refresh an expired avatar URL and must not persist those URLs as durable profile data. `profile_image_path` is internal and is never returned by the API.
+
 ## Backend routes available but not called by the patient app
 
 These are present in the current FastAPI routers and may be relevant to the provider/admin frontend or future patient features. They are not evidence of a frontend integration yet.

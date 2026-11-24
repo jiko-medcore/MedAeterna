@@ -175,3 +175,19 @@ Before any production release:
 - [Controlled Supabase database and storage release guide](../backend/MedAeterna_Controlled_Supabase_Database_and_Storage_Release_Guide_v1.0.md)
 - [SPEC-12 — storage bucket and object access](SPEC-12-storage-bucket-and-object-access.md)
 - [PH0-WP-03 completion record](PH0-WP-03-completion-record.md)
+
+---
+
+## 8. Addendum — private patient-avatar storage cutover (local implementation only)
+
+**Branch:** `security/private-patient-avatar-storage`
+
+**Starting SHA:** `ac28aa82f24fcf0838d35edf2ea0e01822aaa2d0` (`origin/main`, PR #42 merge)
+
+**Forward-only migration:** `backend/supabase/migrations/20261124192523_private_patient_avatar_storage.sql`
+
+This addendum records a later owner-approved classification change and supersedes the all-public statements in sections 1–7. `organization-logos` remains public and unchanged. `patient-avatars` and `practitioner-photos` are now private in the reviewed inventory, local `config.toml`, the new migration, and the catalog test expectations. The 2 MiB limit and `image/jpeg`, `image/png`, `image/webp` allowlist are unchanged for all three buckets. No existing migration was edited, no broad authenticated Storage read/write policy was added, and the single deny-all client policy remains the only storage policy.
+
+The database change adds nullable `patients.profile_image_path`, preserves `patients.profile_image_url`, backfills only exact owner-scoped legacy public-avatar paths, and documents that signed URLs must never be persisted. The upload route derives the object path from authenticated patient identity, validates MIME/signature/size, overwrites deterministically, persists only the stable path, returns a 60-second signed URL, and attempts compensating object removal after post-upload signing or database failure. Retrieval for `/patients/me`, `/patients/profile/me`, `/api/v1/user/summary`, and `/patients/mine` signs only avatars for patients already returned by the existing authorization checks. Outward field names remain `profile_image_url` and `avatarUrl`; `profile_image_path` is internal. Signing failures fail closed. Legacy organization-logo behavior is unchanged.
+
+This addendum does **not** apply the migration to a hosted database, push Storage config, mutate production objects, close a SEC finding or issue, or accept Phase 0. Hosted drift and controlled-release gates remain open.
