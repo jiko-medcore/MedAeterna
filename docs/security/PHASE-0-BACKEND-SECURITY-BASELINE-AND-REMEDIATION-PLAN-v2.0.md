@@ -462,16 +462,16 @@ This resolves the previous collision where policy SPEC-02 and GitHub issue #35 b
 
 | Work package / issue | Main scope | Current state |
 |---|---|---|
-| PH0-WP-01 / #34 | Authn, role resolution, authorization primitives, medication/events entry points | Open — P0 blockers remain |
-| PH0-WP-02 / #35 | Clinical resources, relationships, appointments, consent enforcement | Open — local 45-route map and tests complete; hosted/runtime proof and closure remain |
-| PH0-WP-03 / #36 | RLS, grants, functions, table inventory | Open — local work done; clinical coverage/hosted proof pending |
-| Phase 0 index / #37 | Overall acceptance and links | Open — NOT ACCEPTED |
-| Storage / #3 | Avatar/image uploads and object access | Open — local SPEC-12 progress; hosted/privacy verification pending |
-| Audit / #16 | Audit completeness and access | Open — database protections do not prove application audit coverage |
+| PH0-WP-01 / #34 | Authn, role resolution, authorization primitives, medication/events entry points | Open — PR #42 merged with local tests and CI success; hosted/runtime proof and SEC closures remain |
+| PH0-WP-02 / #35 | Clinical resources, relationships, appointments, consent enforcement | Open — local 45-route map, 44 new tests and CI pass; hosted/runtime proof, F-3, consent lifecycle and SEC closures remain |
+| PH0-WP-03 / #36 | RLS, grants, functions, table inventory | Open — local 34-relation candidate, 36 pgTAP and clean advisors; hosted drift remains |
+| Phase 0 index / #37 | Overall acceptance and links | Open — NOT ACCEPTED; order 11 closed 0 SEC findings |
+| Storage / #3 | Avatar/image uploads and object access | Open — local SPEC-12 progress and 22/22 effective checks; hosted bucket/object verification pending |
+| Audit / #16 | Audit completeness and access | Open — local audit work; F-8 post-write audit compensation and hosted audit-policy drift remain |
 | Consent / #17 | Consent and emergency contacts | Open — policy defined, lifecycle implementation incomplete |
-| Platform / #20 | Deployment, migrations, secrets, operational hardening | Open — hosted verification and CI/branch controls pending |
-| Verification / #31 | Security regression and runtime verification | Open — order 10 records local/CI evidence; hosted runtime evidence pending; NOT ACCEPTED |
-| CI / #38 | Backend Actions workflow and main protection | Open — workflow exists and local CI-equivalent passes; required `Backend verification` status check not yet configured (owner action) |
+| Platform / #20 | Deployment, migrations, secrets, operational hardening | Open — backup evidence received; hosted verification, §8.5 authorization and branch protection remain |
+| Verification / #31 | Security regression and runtime verification | Open — local/CI evidence complete on PR #42 merge; hosted runtime evidence pending; NOT ACCEPTED |
+| CI / #38 | Backend Actions workflow and main protection | Open — workflow merged and `Backend verification` passed on PR head and merge commit; required status check still missing from ruleset (owner action) |
 
 Trace every closure as:
 
@@ -523,5 +523,7 @@ Phase 0 may be accepted only when all of the following are demonstrated:
 **Order 9 local status (24 November 2026):** the [route-by-route record](PH0-WP-02-route-authorization-order-9-record.md) maps all 45 mounted sensitive routes and records local positive/negative evidence. This does not close PH0-WP-02 or make Phase 0 accepted; hosted/runtime verification and the remaining SEC dispositions are still required.
 
 **Order 10 status (24 November 2026):** the [final acceptance evidence record](PH0-WP-10-order-10-final-acceptance-evidence-record.md) records the 1,438-test local CI-equivalent run, the `Backend verification` workflow check, the current GitHub ruleset gap, read-only hosted drift evidence, and the 17-criterion review. The owner will apply the required status check; order 10 is finalized as evidence + STOP under the controlled release guide. Criterion 17 and the hosted verification/release gates remain unmet, so Phase 0 is **NOT ACCEPTED**.
+
+**Order 11 status (24 November 2026):** the [SEC and GitHub issue reconciliation record](PH0-WP-10-order-11-sec-and-issue-reconciliation-record.md) records PR #42 merged at `ac28aa82…`, `Backend verification` passing on both PR head `59d69ce…` and merge commit `ac28aa8…`, the full local re-verification at the merge commit, and fresh read-only hosted drift evidence. Under the “only evidence-backed closures” rule, **0 of 24 SEC findings and 0 Phase 0 GitHub issues were closed**. All application findings remain open pending hosted/runtime evidence; all database/Storage findings remain open pending hosted deployment verification; CI/branch-protection issue #38 remains open because the required status check is still not enforced. Phase 0 remains **NOT ACCEPTED**.
 
 **Do not mark a finding complete based only on documentation or local unit tests. Do not start another feature that expands sensitive data access while the P0 authorization blockers remain open.**

@@ -4,9 +4,12 @@
 **Controlled procedure:** `backend/MedAeterna_Controlled_Supabase_Database_and_Storage_Release_Guide_v1.0.md`, especially §§8.4–8.5 and §10  
 **Project:** MedAeterna / production ref `iyueixtpmzznyffshqon`  
 **Record date:** 23 November 2026  
-**Status:** **OPEN — backup and recovery gate NOT COMPLETE; production deployment remains BLOCKED; Phase 0 NOT ACCEPTED**
+**Updated:** 24 November 2026 — owner-supplied backup/export and recovery-setup evidence received<br>
+**Status:** **OWNER BACKUP/RECOVERY EVIDENCE RECEIVED — deployment remains BLOCKED; Phase 0 NOT ACCEPTED**
 
 > This record does not contain a database password, connection string, SQL dump content, Storage object content, or patient data. Hosted operations so far were read-only catalog/advisor inspection. No `db push`, `config push`, `apply_migration`, `migration repair`, hosted upload/download/delete, or production deployment has been performed in this workspace.
+
+> Owner evidence update: the owner reports that the database backup/export and recovery setup were completed under `C:\Users\jeffrey\MedAeterna-Backups\production\20261123-073111`. Metadata-only inspection confirmed `BACKUP-MANIFEST.txt` (production CLI logical export, CLI 3.2.0, timestamp `2026-11-23 08:24:02 +01:00`) with `roles.sql`, `schema.sql`, and `data.sql`, plus `storage/storage-inventory.md` recording two confirmed buckets with zero active objects and no object downloads necessary. The standard dump excludes `auth` and Storage object bytes; PITR/automatic backups remain unavailable on the Free plan. Restore-test execution and named recovery owners are owner-reported and were not independently replayed here. This evidence does not close controlled guide §8.5 authorization or permit deployment.
 
 ---
 
@@ -16,17 +19,17 @@
 |---|---|---|
 | Local database verification | PASS | Clean reset, 6 migrations, 36/36 pgTAP tests, 0 WARN advisories. |
 | Local Storage verification | PASS | 22/22 effective Storage API checks using synthetic identities/objects. |
-| Backend regression tests | PASS | 1,368 passed, 1 skipped, 18 warnings. |
-| Release branch merged to `main` | **NOT DONE** | See §7. PR #41 was opened in the wrong direction. |
+| Backend regression tests | PASS | 1,438 passed, 1 skipped, 18 warnings on merged tree; `Backend verification` passed in CI on PR #42 head and merge commit. |
+| Release branch merged to `main` | **DONE** | PR #42 merged `security/phase-0-db-storage-release` into `main` at `ac28aa82f24fcf0838d35edf2ea0e01822aaa2d0` on 2026-11-24; see §7. |
 | Production dry run | **NOT VERIFIED HERE** | The operator reports a passing dry run, but no output or CLI evidence is recorded in this workspace. CLI `whoami` still returns `AccessTokenRequiredError`. |
-| Production database backup | **NOT CREATED / NOT VERIFIED** | Manual CLI logical export required on Free plan. |
+| Production database backup | **OWNER EVIDENCE RECEIVED** | `roles.sql`, `schema.sql`, `data.sql` and `BACKUP-MANIFEST.txt` observed under `C:\Users\jeffrey\MedAeterna-Backups\production\20261123-073111`; dump contents were not read. |
 | Automatic daily backups | **NOT AVAILABLE** | Supabase Free plan. |
 | PITR | **NOT AVAILABLE** | Supabase Free plan. |
-| Storage object backup | **NOT VERIFIED** | Database dumps do not include Storage file bytes. |
-| Restore test | **NOT COMPLETE** | Must be done in a separate disposable target, not production. |
-| Recovery owner | **NOT FORMALLY RECORDED** | Primary and backup owner names required. |
+| Storage object backup | **OWNER EVIDENCE RECEIVED / NO OBJECTS PRESENT** | `storage/storage-inventory.md` records zero active objects in both confirmed buckets; no object bytes were present or read. Bucket config and Storage RLS policies require separate evidence. |
+| Restore test | **OWNER-REPORTED COMPLETE** | Owner reports recovery setup complete; restore execution was not independently replayed in this workspace. Must remain documented against a separate disposable target, never production. |
+| Recovery owner | **OWNER-REPORTED** | Owner reports recovery setup complete; primary and backup owner names still need to be recorded in the §8.5 authorization. |
 | Rollback / forward-fix plan | Draft in §6; approval pending. | Per-migration decision required. |
-| Full §8.5 deployment authorization | **INCOMPLETE** | Exact project, commit and migrations were supplied; remaining fields are still missing. |
+| Full §8.5 deployment authorization | **INCOMPLETE** | Exact project, commit and migrations were supplied; remaining fields (window, operator, recovery owner, approval timestamp, evidence acceptance) are still missing. |
 | Production deployment | **NOT PERFORMED** | Do not run `supabase db push --remote` until all gates close. |
 | Phase 0 | **NOT ACCEPTED** | Evidence-backed closure and human acceptance remain outstanding. |
 
@@ -210,37 +213,39 @@ Restoring an old dump over a live database can erase legitimate later changes. F
 
 ---
 
-## 7. GitHub release-state correction
+## 7. GitHub release state
 
 Current GitHub evidence from read-only API inspection:
 
 | Item | Value |
 |---|---|
-| `main` SHA | `4a5941c859ce6b1197c9cc2689715f08eb2f24ed` |
-| Remote `security/phase-0-db-storage-release` SHA | `0066602afac41662eb6c79f877049d0b6fb39ed9` |
-| Local branch HEAD | `c0eb6ce5508a4c154ccc2dd66d4c36284df43ccd` |
-| Local status | Ahead of remote by 2 commits; not pushed |
-| `main...security/phase-0-db-storage-release` | Diverged: security ahead 19, behind 3 |
-| PR #41 | `head=main`, `base=docs/phase-0-security-plan-v2-and-backend-ci`; merged 2026-11-22T16:54:24Z |
-| PR #41 merge effect | Merged `main` into the docs branch; did **not** merge the release branch into `main` |
+| `main` SHA | `ac28aa82f24fcf0838d35edf2ea0e01822aaa2d0` |
+| Release PR | #42, `security/phase-0-db-storage-release` → `main`; merged 2026-11-24T08:17:05Z |
+| PR #42 head | `59d69ce0e4e467ae0a7668df119db282ee1b7c52` |
+| CI on PR head | `Backend verification` succeeded, run `45353172296` |
+| CI on merge commit | `Backend verification` succeeded, run `45354774540` |
+| Review evidence | 0 reviews returned by public API; human approval not evidenced here |
+| Ruleset `Test` | ID `11701421`; still lacks `required_status_checks` for `Backend verification` |
+| Historical PR #41 | Mis-oriented (`head=main`, `base=docs/phase-0-security-plan-v2-and-backend-ci`); merged 2026-11-22T16:54:24Z; not a release merge |
 
-Therefore the release branch is **not merged into `main`**. PR #41 must not be treated as the release merge. For the release record, freeze the actual `main` SHA and merged PR details after a correctly oriented PR is created and merged.
+PR #42 merged the release branch into `main`. Code merge and CI success do **not** close the backup, recovery, §8.5 authorization, deployment, or Phase 0 acceptance gates. Order 11 records 0 SEC findings and 0 GitHub issues closed.
 
 ---
 
 ## 8. Open items before deployment
 
-1. Push local cleanup commits and open a correctly oriented PR: `security/phase-0-db-storage-release` → `main`.
-2. Obtain GitHub CI and human review approval on that PR.
-3. Record the actual merged `main` SHA and PR number.
-4. Create and verify the three production database exports.
-5. Create and verify the separate Storage object backup.
-6. Perform the restore test in a disposable target.
-7. Record primary and backup recovery owners.
+1. ~~Push local cleanup commits and open a correctly oriented PR: `security/phase-0-db-storage-release` → `main`.~~ Done as PR #42; merged at `ac28aa82…`.
+2. ~~Obtain GitHub CI on that PR.~~ Done: `Backend verification` passed on head `59d69ce…` and merge commit. Human review approval is still not evidenced by the public API.
+3. ~~Record the actual merged `main` SHA and PR number.~~ Done in §7.
+4. ~~Create and verify the three production database exports.~~ Owner evidence received; see updated header and §1.
+5. ~~Create and verify the separate Storage object backup.~~ Owner inventory reports zero active objects; no object bytes required.
+6. Obtain/retain restore-test evidence in a disposable target; owner reports setup complete, but it was not independently replayed here.
+7. Record primary and backup recovery owner names in the §8.5 authorization.
 8. Approve the per-migration forward-fix plan.
-9. Complete the remaining §8.5 authorization fields: PR/approval, Storage changes, expected impact, backup/PITR confirmation, recovery owner, deployment operator, deployment window and approval timestamp.
+9. Complete the remaining §8.5 authorization fields: review approval, Storage changes, expected impact, backup/PITR confirmation, recovery owner, deployment operator, deployment window and approval timestamp.
 10. Re-run and record the production dry run and config diff under authenticated CLI conditions.
-11. Only then consider a separately authorized production deployment.
+11. Enforce `Backend verification` as a required status check for `main` and verify blocked-merge behavior.
+12. Only then consider a separately authorized production deployment.
 
 ---
 
@@ -249,4 +254,6 @@ Therefore the release branch is **not merged into `main`**. PR #41 must not be t
 - [Controlled Supabase database and storage release guide](../../backend/MedAeterna_Controlled_Supabase_Database_and_Storage_Release_Guide_v1.0.md)
 - [SPEC-11/SPEC-12 hosted read-only preflight record](SPEC-11-SPEC-12-hosted-read-only-preflight-record.md)
 - [PR body draft](PH0-DB-STORAGE-RELEASE-PR-body.md)
+- [Order 10 final acceptance evidence](PH0-WP-10-order-10-final-acceptance-evidence-record.md)
+- [Order 11 SEC and issue reconciliation](PH0-WP-10-order-11-sec-and-issue-reconciliation-record.md)
 - [PH0-WP-07 completion record](PH0-WP-07-completion-record.md)
