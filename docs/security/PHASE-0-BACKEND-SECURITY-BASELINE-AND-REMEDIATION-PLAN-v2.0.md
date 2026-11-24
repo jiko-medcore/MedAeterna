@@ -463,7 +463,7 @@ This resolves the previous collision where policy SPEC-02 and GitHub issue #35 b
 | Work package / issue | Main scope | Current state |
 |---|---|---|
 | PH0-WP-01 / #34 | Authn, role resolution, authorization primitives, medication/events entry points | Open — P0 blockers remain |
-| PH0-WP-02 / #35 | Clinical resources, relationships, appointments, consent enforcement | Open — route adoption remains |
+| PH0-WP-02 / #35 | Clinical resources, relationships, appointments, consent enforcement | Open — local 45-route map and tests complete; hosted/runtime proof and closure remain |
 | PH0-WP-03 / #36 | RLS, grants, functions, table inventory | Open — local work done; clinical coverage/hosted proof pending |
 | Phase 0 index / #37 | Overall acceptance and links | Open — NOT ACCEPTED |
 | Storage / #3 | Avatar/image uploads and object access | Open — local SPEC-12 progress; hosted/privacy verification pending |
@@ -519,5 +519,7 @@ Phase 0 may be accepted only when all of the following are demonstrated:
 8. Verify SPEC-11/SPEC-12 against staging and production.
 9. Complete route-by-route clinical authorization.
 10. Complete audit evidence, CI, branch protection and final acceptance review.
+
+**Order 9 local status (24 November 2026):** the [route-by-route record](PH0-WP-02-route-authorization-order-9-record.md) maps all 45 mounted sensitive routes and records local positive/negative evidence. This does not close PH0-WP-02 or make Phase 0 accepted; hosted/runtime verification and the remaining SEC dispositions are still required.
 
 **Do not mark a finding complete based only on documentation or local unit tests. Do not start another feature that expands sensitive data access while the P0 authorization blockers remain open.**

@@ -114,3 +114,7 @@ These are policy unit tests and read-only catalog checks. Route-level grant/revo
 - Add table-by-table grants and RLS policies plus pgTAP tests; include authorization when backend code uses a privileged client.
 - Integrate consent evaluation with SPEC-03 action, SPEC-04 relationship, role scope, and the approved resource workflow.
 - Emergency consent and break-glass remain denied under SPEC-08; a future clinical emergency workflow requires a separate approved specification.
+
+### Order 9 local route evidence (24 November 2026)
+
+The [Order 9 route map](PH0-WP-02-route-authorization-order-9-record.md) records the three mounted consent routes as patient-self-only, with patient identity taken from the authenticated actor and a reviewed consent projection for the list path. This is local route adoption evidence only. Full purpose, recipient, resource-family, lifecycle, provenance, and effective database enforcement remain open.

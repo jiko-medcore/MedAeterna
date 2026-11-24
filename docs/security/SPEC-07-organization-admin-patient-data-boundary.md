@@ -73,3 +73,7 @@ Focused command: `.venv/Scripts/python.exe -m pytest tests/core/test_organizatio
 Regression command: `.venv/Scripts/python.exe -m pytest tests/core/test_organization_admin_patient_access.py tests/core/test_action_authorization.py tests/core/test_role_catalogue.py -q --tb=short -p no:cacheprovider` (run from `backend/`). Result: **52 passed**. Both runs reported 12 dependency deprecation warnings from installed `pyiceberg`/Pydantic packages; no tests failed.
 
 `git diff --check` is clean. Tests validate pure policy behavior; they do not prove route wiring, RLS/grants, database views, field-source mapping, audit delivery, or deployed configuration. Those remain open implementation checks before SEC findings can be closed.
+
+### Order 9 local route evidence (24 November 2026)
+
+The [Order 9 route record](PH0-WP-02-route-authorization-order-9-record.md) maps the mounted care-team and organization-admin-sensitive paths to exact-organization checks, patient-organization boundary verification, no self-assignment, and attribution metadata. These are local route/service controls; RLS, field-source proof, audit delivery, and deployed configuration remain unverified.

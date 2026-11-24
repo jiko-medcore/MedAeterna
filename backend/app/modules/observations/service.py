@@ -2,6 +2,17 @@ from fastapi import HTTPException
 from app.core.clinical_authorization import CLINICAL_RECORD, ensure_authorized_context
 from app.core.supabase_admin import supabase_admin
 
+OBSERVATION_LIST_SELECT = (
+    "id, patient_id, encounter_id, organization_id, practitioner_id, category, "
+    "code, display, value, unit, interpretation, status, effective_at, issued_at, "
+    "notes, created_at, updated_at"
+)
+OBSERVATION_DETAIL_SELECT = (
+    "id, patient_id, encounter_id, organization_id, practitioner_id, category, "
+    "code, display, value, unit, interpretation, status, effective_at, issued_at, "
+    "notes, created_at, updated_at"
+)
+
 
 # ----- Create Observation Service -----
 def create_observation(
@@ -71,8 +82,8 @@ def get_patient_observations(
     response = (
         supabase_admin
         .table("observations")
-        .select("""
-            *,
+        .select(f"""
+            {OBSERVATION_LIST_SELECT},
             practitioners (
                 id,
                 first_name,
@@ -106,7 +117,7 @@ def get_encounter_observations(
     response = (
         supabase_admin
         .table("observations")
-        .select("*")
+        .select(OBSERVATION_DETAIL_SELECT)
         .eq("encounter_id", encounter_id)
         .order(
             "effective_at",

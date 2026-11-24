@@ -319,3 +319,9 @@ Verified zero production callers before removal. Deleted `app/core/audit/query.p
 | Production deployment | None. Code/schema unchanged, nothing pushed, gates remain closed. |
 
 The order 8 exit condition remains **NOT MET** because F-3, F-8, F-9, the invite/departments ordering gaps, unmounted hardened admin routers, worker-identity evidence, and hosted production drift remain open.
+
+---
+
+## 13. Order 9 follow-up (24 November 2026)
+
+The [Order 9 route-by-route record](PH0-WP-02-route-authorization-order-9-record.md) extends the local evidence with all 45 mounted sensitive routes, forged-actor binding, a closed `/patients/mine` service context, reviewed projections, and 44 focused tests. Full-suite count after that work is **1,438 passed, 1 skipped, 18 warnings**; local database tests, advisories, OpenAPI contract, and patch hygiene remain clean. The read-only hosted audit recheck still shows only the two synthetic rows disclosed in §11, and hosted migration history is unchanged. No order 8 gap is closed by this follow-up: F-3, F-8, F-9, invite/departments, worker identity, unmounted routers, and hosted drift remain open.

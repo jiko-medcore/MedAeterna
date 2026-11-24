@@ -2,6 +2,13 @@ from fastapi import HTTPException
 from app.core.clinical_authorization import CLINICAL_RECORD, ensure_authorized_context
 from app.core.supabase_admin import supabase_admin
 
+MEDICATION_LIST_SELECT = (
+    "id, patient_id, encounter_id, organization_id, practitioner_id, medication_code, "
+    "medication_name, status, intent, dosage_instruction, route, frequency, quantity, "
+    "duration, dispense_request, substitution_allowed, authored_on, notes, created_at, updated_at"
+)
+MEDICATION_DETAIL_SELECT = MEDICATION_LIST_SELECT
+
 
 # ----- Validating Encounter -----
 def validate_encounter(
@@ -100,8 +107,8 @@ def get_patient_medication(
     response = (
         supabase_admin
         .table("medication_requests")
-        .select("""
-            *,
+        .select(f"""
+            {MEDICATION_LIST_SELECT},
             practitioners (
                 id,
                 first_name,
@@ -135,7 +142,7 @@ def get_encounter_medication(
     response = (
         supabase_admin
         .table("medication_requests")
-        .select("*")
+        .select(MEDICATION_DETAIL_SELECT)
         .eq("encounter_id", encounter_id)
         .execute()
     )

@@ -2,6 +2,11 @@ from fastapi import HTTPException
 from app.core.clinical_authorization import CLINICAL_RECORD, ensure_authorized_context
 from app.core.supabase_admin import supabase_admin
 
+ENCOUNTER_LIST_SELECT = (
+    "id, patient_id, organization_id, practitioner_id, encounter_class, status, "
+    "reason, appointment_id, start_time, end_time, location, notes, created_at, updated_at"
+)
+
 # ---- Creare Encounter Service -----
 def create_encounter(
     payload,
@@ -63,8 +68,8 @@ def get_patient_encounters(
     response = (
         supabase_admin
         .table("encounters")
-        .select("""
-            *,
+        .select(f"""
+            {ENCOUNTER_LIST_SELECT},
             organizations (
                 id,
                 name

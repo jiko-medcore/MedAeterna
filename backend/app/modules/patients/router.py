@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
+from app.core.clinical_authorization import authorize_patient_list_access
 from app.core.security import authorize_patient_access, get_current_user, require_permission
 from app.core.storage_access_inventory import PATIENT_AVATARS_BUCKET
 from app.core.storage_upload_validation import (
@@ -67,11 +68,12 @@ def my_profile(current_user: dict = Depends(get_current_user)):
 
 @router.get("/mine")
 def my_patients(current_user: dict = Depends(get_current_user)):
-    # Canonical role context is in `roles` categories; keep legacy string fallback.
-    is_practitioner = bool(current_user.get("is_practitioner")) or current_user.get("role") == "clinician"
-    if not is_practitioner:
-        raise HTTPException(status_code=403, detail="Only clinicians allowed")
-    return get_my_patients(current_user["id"])
+    # Use deterministic role categories and trusted care-team relationships.
+    # Legacy clinician flags and client-supplied organization context are not
+    # sufficient to enumerate patient records.
+    return get_my_patients(
+        authorized_context=authorize_patient_list_access(current_user)
+    )
 
 
 @router.put("/profile/me")
@@ -100,7 +102,8 @@ def patient_qr(
     current_user: dict = Depends(get_current_user),
 ):
     authorize_patient_access(current_user, str(patient_id))
-    get_patient_with_records(str(patient_id))
+    # The QR payload contains only the authorized patient identifier; fetching
+    # patient or clinical rows here would be unnecessary overexposure.
     return StreamingResponse(generate_qr(str(patient_id)), media_type="image/png")
 
 

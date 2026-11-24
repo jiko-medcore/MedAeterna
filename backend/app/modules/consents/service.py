@@ -4,6 +4,12 @@ from fastapi import HTTPException
 
 from app.core.supabase_admin import supabase_admin
 
+CONSENT_SAFE_SELECT = (
+    "id, patient_id, organization_id, practitioner_id, granted_by, consent_type, "
+    "access_level, purpose_of_use, legal_basis, status, emergency_access, otp_verified, "
+    "granted_at, effective_from, expires_at, revoked_at, revoked_reason, created_at, updated_at"
+)
+
 
 def _aware(value: datetime | None, field: str) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
@@ -67,7 +73,7 @@ def revoke_consent(
     existing = (
         supabase_admin
         .table("consent_records")
-        .select("*")
+        .select(CONSENT_SAFE_SELECT)
         .eq("id", payload.consent_id)
         .eq("patient_id", patient_id)
         .limit(1)
@@ -106,8 +112,8 @@ def get_patient_consents(
     response = (
         supabase_admin
         .table("consent_records")
-        .select("""
-            *,
+        .select(f"""
+            {CONSENT_SAFE_SELECT},
             organizations (
                 id,
                 name

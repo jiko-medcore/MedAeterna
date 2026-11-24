@@ -100,3 +100,7 @@ Focused command: `.venv/Scripts/python.exe -m pytest tests/core/test_database_ex
 Security-policy regression command: `.venv/Scripts/python.exe -m pytest tests/core/test_database_execution_policy.py tests/core/test_action_authorization.py tests/core/test_role_catalogue.py tests/core/test_system_admin_patient_access.py tests/core/test_organization_admin_patient_access.py tests/core/test_patient_relationship_policy.py tests/core/test_consent_policy.py tests/core/test_patient_access_grants_schema.py tests/core/test_operational_event_policy.py tests/core/test_event_logging.py -q --tb=short -p no:cacheprovider` (run from `backend/`). Result: **390 passed**.
 
 The focused SDK wiring test was run with installed `supabase-py` 2.27.1 and requires no live database. It passed. No database or hosted Supabase credentials were used for this SPEC. Deprecation warnings originate from installed dependencies and the SDK's deprecated PostgREST constructor arguments.
+
+### Order 9 local service-boundary evidence (24 November 2026)
+
+The [Order 9 route record](PH0-WP-02-route-authorization-order-9-record.md) adds 45-route local mapping and tests showing denial before privileged service execution on wrong-role, wrong-organization, cross-patient, invalid-token, and forged-practitioner paths. The `/patients/mine` service now requires a closed authorization context. This does not migrate the remaining shared publishable-client call sites (F-3), provide caller-scoped RLS propagation, or supply worker-identity evidence.

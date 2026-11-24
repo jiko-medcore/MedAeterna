@@ -2,6 +2,12 @@ from fastapi import HTTPException
 from app.core.clinical_authorization import APPOINTMENT, ensure_authorized_context
 from app.core.supabase_admin import supabase_admin
 
+APPOINTMENT_LIST_SELECT = (
+    "id, patient_id, organization_id, practitioner_id, appointment_type, status, "
+    "start_time, end_time, reason, location, notes, created_at, updated_at"
+)
+APPOINTMENT_UPDATE_SELECT = "id, start_time, end_time, status"
+
 
 # ----- Validate Appointment Time Service -----
 def validate_appointment_times(
@@ -120,8 +126,8 @@ def get_patient_appointments(
     response = (
         supabase_admin
         .table("appointments")
-        .select("""
-            *,
+        .select(f"""
+            {APPOINTMENT_LIST_SELECT},
             practitioners (
                 id,
                 first_name,
@@ -157,8 +163,8 @@ def get_practitioner_appointments(
     response = (
         supabase_admin
         .table("appointments")
-        .select("""
-            *,
+        .select(f"""
+            {APPOINTMENT_LIST_SELECT},
             patients (
                 id,
                 first_name,
@@ -216,7 +222,7 @@ def update_appointment(
     existing = (
         supabase_admin
         .table("appointments")
-        .select("*")
+        .select(APPOINTMENT_UPDATE_SELECT)
         .eq("id", appointment_id)
         .single()
         .execute()

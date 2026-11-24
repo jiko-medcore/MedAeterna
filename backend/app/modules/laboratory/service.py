@@ -5,8 +5,7 @@ from app.core.supabase_admin import supabase_admin
 
 LAB_SCOPE_SELECT = "id, patient_id"
 LAB_DETAIL_SELECT = (
-    "id, patient_id, status, result, results, performed_date, created_at, "
-    "ordering_provider, clinician_id, facility_name"
+    "id, patient_id, status, result_data, performed_at, created_at, clinician_id"
 )
 
 
@@ -52,14 +51,15 @@ def build_lab_detail(lab_id: str, current_user: dict) -> dict:
 
     # No `raw` full-row projection: only reviewed clinical/display fields leave
     # this service, and only after the patient-access check above.
+    # These are the reviewed display columns from the canonical lab_results
+    # relation. No full-row/`raw` projection is returned.
     return {
         "id": lab.get("id"),
         "patient_id": lab.get("patient_id"),
         "status": lab.get("status"),
-        "result": lab.get("result") or lab.get("results"),
+        "result": lab.get("result_data"),
         "metadata": {
-            "performed_date": lab.get("performed_date") or lab.get("created_at"),
-            "ordering_provider": lab.get("ordering_provider") or lab.get("clinician_id"),
-            "facility_name": lab.get("facility_name"),
+            "performed_date": lab.get("performed_at") or lab.get("created_at"),
+            "ordering_provider": lab.get("clinician_id"),
         },
     }

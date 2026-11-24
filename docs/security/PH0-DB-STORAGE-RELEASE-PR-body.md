@@ -21,7 +21,7 @@ Copy the content below into the GitHub PR description. This is a drafting artifa
 
 ## Summary
 
-This PR collects the local Phase 0 application, database, and Storage security remediation for review. It covers backend plan recommended orders 2–8 and the local evidence portion of order 9. Order 8 now includes the PH0-WP-08/WP-09 audit and privileged-path review; the read-only hosted SPEC-11/SPEC-12 preflight remains separate evidence.
+This PR collects the local Phase 0 application, database, and Storage security remediation for review. It covers backend plan recommended orders 2–8 and the local evidence for order 9. Order 8 includes the PH0-WP-08/WP-09 audit and privileged-path review; order 9 adds the 45-route clinical authorization map and 44 focused route tests. The read-only hosted SPEC-11/SPEC-12 preflight remains separate evidence, and no hosted/effective-access proof is claimed.
 
 The change set replaces legacy permissive policies and grants with the reviewed SPEC-11 model, installs the reviewed SPEC-12 bucket configuration and direct-client object deny policy, and hardens the affected backend authorization paths with negative tests. All evidence in this PR is **local**. Production code and schema remain unchanged and are **NOT VERIFIED / NOT ACCEPTED**; two synthetic audit rows were accidentally written to hosted production by a test and are disclosed in §6 and in the [order 8 review record](PH0-WP-08-WP-09-privileged-path-review-record.md) §11.
 
@@ -76,6 +76,7 @@ Migration files present in the reviewed local stack:
 - `docs/security/SPEC-01` through `docs/security/SPEC-12`
 - PH0-WP-02, PH0-WP-03, PH0-WP-05, PH0-WP-06, PH0-WP-07 and PH0-WP-08/WP-09 records
 - `docs/security/SPEC-11-SPEC-12-hosted-read-only-preflight-record.md`
+- `docs/security/PH0-WP-02-route-authorization-order-9-record.md` (local order 9 route map and evidence; not hosted verification)
 
 No patient row data, patient object content, production secret, or production token is included.
 
@@ -127,7 +128,8 @@ Verified after a clean local rebuild of the whitespace-normalized tree:
 | Migration inventory | `supabase migration list` | 6/6 local migrations applied |
 | Database catalog tests | `supabase test db` | **36/36 passed**; SPEC-02, SPEC-11, SPEC-12 ok |
 | Advisories | `supabase db advisors --type all --level warn` | **No issues found** |
-| Backend regression | `.venv/Scripts/python.exe -m pytest -q` | **1,394 passed, 1 skipped, 18 warnings** after the order 8 review and both remediation batches |
+| Backend regression | `.venv/Scripts/python.exe -m pytest -q` | **1,394 passed, 1 skipped, 18 warnings** after the order 8 review; **1,438 passed, 1 skipped, 18 warnings** after the order 9 follow-up |
+| Order 9 route authorization | Focused order 9 plus neighboring security suites | **107 passed**, including 44 new route-level tests; see the [order 9 record](PH0-WP-02-route-authorization-order-9-record.md) |
 | OpenAPI contract | `from main import app; app.openapi()` and `tests/core/test_openapi_security_contract.py` | **74 paths / 89 operations**; 83 secured, 6 intentionally public; disabled `/events` routes not published |
 | Effective Storage checks | `scripts/verify_local_storage_effective_access.py` | **22/22 passed** against local API `http://127.0.0.1:58561`, synthetic identities/objects only |
 | Patch hygiene | `git diff --check origin/main...HEAD` | Clean |

@@ -4,6 +4,7 @@ from app.core import security
 from app.core.clinical_authorization import (
     CLINICAL_RECORD,
     authorize_clinical_access,
+    bind_clinical_actor,
     require_patient_clinical,
     require_table_clinical,
 )
@@ -51,6 +52,7 @@ def create_new_encounter(
         organization_id=str(payload.organization_id),
         verified_conditions={"clinical_workflow"},
     )
+    payload = bind_clinical_actor(payload, context)
     return create_encounter(payload, current_user["id"], authorized_context=context)
 
 

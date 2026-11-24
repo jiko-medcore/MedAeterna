@@ -70,13 +70,10 @@ def lab_responder(query: FakeQuery):
         "id": LAB_ID,
         "patient_id": PATIENT_ID,
         "status": "final",
-        "result": "negative",
-        "results": None,
-        "performed_date": "2026-11-23",
+        "result_data": "negative",
+        "performed_at": "2026-11-23",
         "created_at": "2026-11-22",
-        "ordering_provider": "Dr Synthetic",
-        "clinician_id": None,
-        "facility_name": "Synthetic Lab",
+        "clinician_id": "synthetic-clinician",
         "patient_email": "synthetic.patient@example.test",
     }]
 

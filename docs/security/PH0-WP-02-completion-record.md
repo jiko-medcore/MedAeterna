@@ -169,3 +169,9 @@ Before the parent work package or related SEC findings can be closed:
 - [SPEC-04 — patient relationship access policy](SPEC-04-patient-relationship-access-policy.md)
 - [SPEC-10 — trusted backend and caller-RLS access](SPEC-10-trusted-backend-and-caller-rls-access.md)
 - Focused tests: `backend/tests/core/test_security_phase0_wp02.py`
+
+---
+
+## 9. Order 9 route-by-route extension (24 November 2026)
+
+The earlier six-router scope was extended by the [Order 9 route-by-route record](PH0-WP-02-route-authorization-order-9-record.md). That record maps all **45 mounted sensitive clinical/patient routes**, adds forged-practitioner-id binding, closes the `/patients/mine` service boundary, removes overbroad projections, and records 44 new local route-level tests. The local order 9 evidence is complete; hosted/staging verification, full consent/grant lifecycle, audit completeness, and SEC closure remain open. This record does not change the status above: PH0-WP-02 is **NOT CLOSED** and Phase 0 is **NOT ACCEPTED**.

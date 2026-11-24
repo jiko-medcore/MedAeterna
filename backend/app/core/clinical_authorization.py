@@ -36,6 +36,7 @@ from app.core.role_catalogue import (
 CLINICAL_RECORD = "clinical_record"
 APPOINTMENT = "appointment"
 CARE_TEAM = "care_team"
+PATIENT_LIST = "patient_list"
 RESOURCES = frozenset({CLINICAL_RECORD, APPOINTMENT, CARE_TEAM})
 
 # Columns are intentionally minimal: only context needed for authorization.
@@ -81,6 +82,64 @@ def practitioner_actor_id(current_user: dict[str, Any]) -> str:
     if not practitioner_id:
         _deny("Practitioner profile required")
     return practitioner_id
+
+
+def practitioner_organization_id(current_user: dict[str, Any]) -> str:
+    """Resolve one unambiguous practitioner organization or fail closed."""
+    org_ids = {
+        str(role["organization_id"])
+        for role in (current_user.get("roles") or [])
+        if role.get("category") == PRACTITIONER and role.get("organization_id")
+    }
+    if len(org_ids) != 1:
+        _deny("An unambiguous practitioner organization is required")
+    return next(iter(org_ids))
+
+
+def authorize_patient_list_access(current_user: dict[str, Any]) -> dict[str, Any]:
+    """Authorize a practitioner's organization-scoped patient list operation.
+
+    This is a closed internal list context, not a new broad data-access policy:
+    the actor profile and organization are resolved from trusted role state,
+    and the service still restricts results to active care-team rows in that
+    exact organization.
+    """
+    actor_id = practitioner_actor_id(current_user)
+    organization_id = practitioner_organization_id(current_user)
+    return {
+        **current_user,
+        "authorized_action": "read",
+        "authorized_resource": PATIENT_LIST,
+        "authorized_user_id": str(current_user.get("id") or ""),
+        "authorized_practitioner_id": actor_id,
+        "authorized_organization_id": organization_id,
+    }
+
+
+def bind_clinical_actor(payload: Any, context: dict[str, Any]) -> Any:
+    """Bind a clinical create payload to the authorized practitioner actor.
+
+    Client-supplied practitioner IDs are relationship claims, not identity
+    evidence. A forged or mismatched value is denied; an omitted value is filled
+    from the already-authorized context. The returned payload is a copy so the
+    original request model is not mutated.
+    """
+    actor_id = str(context.get("authorized_practitioner_id") or "")
+    if not actor_id:
+        _deny("Practitioner access required")
+    if not hasattr(payload, "practitioner_id"):
+        _deny("Practitioner context required", status.HTTP_400_BAD_REQUEST)
+    supplied = getattr(payload, "practitioner_id")
+    if supplied is not None and str(supplied) != actor_id:
+        _deny("Practitioner must match the authenticated actor")
+    if hasattr(payload, "model_copy"):
+        return payload.model_copy(update={"practitioner_id": actor_id})
+    bound = dict(payload) if isinstance(payload, dict) else payload
+    if isinstance(bound, dict):
+        bound["practitioner_id"] = actor_id
+        return bound
+    setattr(bound, "practitioner_id", actor_id)
+    return bound
 
 
 def _assert_same(value: Any, expected: Any, detail: str) -> None:

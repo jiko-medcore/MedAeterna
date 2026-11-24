@@ -6,6 +6,15 @@ from app.core.clinical_authorization import (
 )
 from app.core.supabase_admin import supabase_admin
 
+CARE_TEAM_LIST_SELECT = (
+    "id, patient_id, clinician_id, organization_id, name, status, category, "
+    "reason, managing_organization_id, notes, created_at, updated_at"
+)
+CARE_TEAM_PARTICIPANT_SELECT = (
+    "id, care_team_id, practitioner_id, role_code, responsibility, start_date, "
+    "end_date, active, created_at, updated_at"
+)
+
 
 # ----- Create Care Team Service -----
 def create_care_team(
@@ -126,14 +135,14 @@ def get_patient_care_teams(
     response = (
         supabase_admin
         .table("care_teams")
-        .select("""
-            *,
+        .select(f"""
+            {CARE_TEAM_LIST_SELECT},
             organizations (
                 id,
                 name
             ),
             care_team_participants (
-                *,
+                {CARE_TEAM_PARTICIPANT_SELECT},
                 practitioners (
                     id,
                     first_name,

@@ -2,6 +2,12 @@ from fastapi import HTTPException
 from app.core.clinical_authorization import CLINICAL_RECORD, ensure_authorized_context
 from app.core.supabase_admin import supabase_admin
 
+CONDITION_LIST_SELECT = (
+    "id, patient_id, encounter_id, organization_id, practitioner_id, code, display, "
+    "clinical_status, verification_status, category, severity, onset_date, "
+    "abatement_date, recorded_date, notes, created_at, updated_at"
+)
+CONDITION_DETAIL_SELECT = CONDITION_LIST_SELECT
 
 
 # ----- Encounter Validation Service -----
@@ -104,8 +110,8 @@ def get_patient_conditions(
     response = (
         supabase_admin
         .table("conditions")
-        .select("""
-            *,
+        .select(f"""
+            {CONDITION_LIST_SELECT},
             practitioners (
                 id,
                 first_name,
@@ -139,7 +145,7 @@ def get_encounter_conditions(
     response = (
         supabase_admin
         .table("conditions")
-        .select("*")
+        .select(CONDITION_DETAIL_SELECT)
         .eq("encounter_id", encounter_id)
         .execute()
     )
