@@ -470,8 +470,8 @@ This resolves the previous collision where policy SPEC-02 and GitHub issue #35 b
 | Audit / #16 | Audit completeness and access | Open — database protections do not prove application audit coverage |
 | Consent / #17 | Consent and emergency contacts | Open — policy defined, lifecycle implementation incomplete |
 | Platform / #20 | Deployment, migrations, secrets, operational hardening | Open — hosted verification and CI/branch controls pending |
-| Verification / #31 | Security regression and runtime verification | Open — recorded local tests; staging/runtime evidence pending |
-| CI / #38 | Backend Actions workflow and main protection | Open until workflow passes and ruleset is configured |
+| Verification / #31 | Security regression and runtime verification | Open — order 10 records local/CI evidence; hosted runtime evidence pending; NOT ACCEPTED |
+| CI / #38 | Backend Actions workflow and main protection | Open — workflow exists and local CI-equivalent passes; required `Backend verification` status check not yet configured (owner action) |
 
 Trace every closure as:
 
@@ -521,5 +521,7 @@ Phase 0 may be accepted only when all of the following are demonstrated:
 10. Complete audit evidence, CI, branch protection and final acceptance review.
 
 **Order 9 local status (24 November 2026):** the [route-by-route record](PH0-WP-02-route-authorization-order-9-record.md) maps all 45 mounted sensitive routes and records local positive/negative evidence. This does not close PH0-WP-02 or make Phase 0 accepted; hosted/runtime verification and the remaining SEC dispositions are still required.
+
+**Order 10 status (24 November 2026):** the [final acceptance evidence record](PH0-WP-10-order-10-final-acceptance-evidence-record.md) records the 1,438-test local CI-equivalent run, the `Backend verification` workflow check, the current GitHub ruleset gap, read-only hosted drift evidence, and the 17-criterion review. The owner will apply the required status check; order 10 is finalized as evidence + STOP under the controlled release guide. Criterion 17 and the hosted verification/release gates remain unmet, so Phase 0 is **NOT ACCEPTED**.
 
 **Do not mark a finding complete based only on documentation or local unit tests. Do not start another feature that expands sensitive data access while the P0 authorization blockers remain open.**
