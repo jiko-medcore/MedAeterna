@@ -6,7 +6,7 @@ def get_active_prescriptions(patient_id: str):
     response = (
         supabase
         .table("prescriptions")
-        .select("*")
+        .select("id, patient_id, drug_name, category, dosage, instructions, start_date, end_date, status, created_at")
         .eq("patient_id", patient_id)
         .eq("status", "active")
         .execute()

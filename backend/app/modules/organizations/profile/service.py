@@ -4,6 +4,7 @@ from datetime import (
 )
 from app.core.audit.actions import AuditActions
 from app.core.audit.service import log_audit_event
+from app.core.role_assignment_policy import authorize_organization_admin
 from app.modules.organizations.profile.schemas import (
     OrganizationProfileUpdate,
     OrganizationProfileResponse,
@@ -124,7 +125,14 @@ def update_profile(
     organization_id: str,
     payload: OrganizationProfileUpdate,
     actor_id: str,
+    actor_roles: list[dict],
 ) -> OrganizationProfileResponse:
+
+    # Authorize before any privileged lookup or write.
+    authorize_organization_admin(
+        actor_roles=actor_roles,
+        organization_id=organization_id,
+    )
 
     organization = get_organization_profile(
         organization_id
@@ -145,6 +153,19 @@ def update_profile(
         ).isoformat()
     )
 
+    # Fail closed: record the privileged write before it happens.
+    log_audit_event(
+        actor_id=actor_id,
+        actor_type="user",
+        action=AuditActions.ORGANIZATION_PROFILE_UPDATED,
+        resource_type="organization",
+        resource_id=organization_id,
+        metadata={
+            "organization_id": organization_id,
+            "updated_fields": sorted(updates.keys()),
+        },
+    )
+
     updated = update_organization_profile(
         organization_id,
         updates,
@@ -154,15 +175,5 @@ def update_profile(
         raise OrganizationProfileUpdateError(
             "Unable to update organization."
         )
-    log_audit_event(
-        actor_id=actor_id,
-        actor_type="user",
-        action=AuditActions.ORGANIZATION_PROFILE_UPDATED,
-        resource_type="organization",
-        resource_id=organization_id,
-        metadata={
-            "updated_fields": list(updates.keys())
-        },
-    )
 
     return _build_profile_response(updated)

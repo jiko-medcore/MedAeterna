@@ -2,6 +2,8 @@
 
 **Status:** System-administrator patient-data access and break-glass are explicitly prohibited for the current Phase 0 policy. The pure reference guard and policy tests are in place. Existing routes and database enforcement remain remediation work.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. Any future emergency workflow remains out of scope. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Decision
 
 A `super_admin` assignment authorizes defined platform operations only. It does not grant access to patient profiles, administrative patient views, appointments, clinical records, consent, patient grants, care-team data, or patient-linked audit/event payloads.
@@ -49,3 +51,7 @@ Security-policy regression command: `.venv/Scripts/python.exe -m pytest tests/co
 `git diff --check` is clean. Tests prove only reference-policy behavior. Route-level authorization/redaction tests, RLS and grants tests, audit delivery, and deployed configuration review remain required to close implementation findings.
 
 SPEC-09's latest security-policy regression command re-ran the system-admin redaction gates together with the neighboring SPEC-03 through SPEC-08 policy suites: **373 passed**, with 12 dependency deprecation warnings and no test failures.
+
+### Order 9 local route evidence (24 November 2026)
+
+The [Order 9 route record](PH0-WP-02-route-authorization-order-9-record.md) includes a negative route test showing that a system administrator is denied a patient-scoped clinical read before the service is called. No break-glass path was added; all clinical patient-data routes remain default-deny for system administrators.

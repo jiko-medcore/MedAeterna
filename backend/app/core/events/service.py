@@ -1,9 +1,5 @@
 from app.core.events.emitter import emit_event
-from app.core.events.schemas import (
-    EventTypes,
-    EventStatus
-)
-from app.core.supabase_admin import supabase_admin
+from app.core.events.schemas import EventTypes
 
 
 # ----- Patient Create Event Service Layer ----- 
@@ -20,24 +16,6 @@ class EventService:
             payload={
                 "email": email
             }
-        )
-
-    @staticmethod
-    def retry_event(
-        event_id: str
-    ):
-
-        return (
-            supabase_admin
-            .table("events")
-            .update({
-                "status": EventStatus.PENDING,
-                "failure_reason": None,
-                "locked_at": None,
-                "last_attempt_at": None
-            })
-            .eq("id", event_id)
-            .execute()
         )
 
     # ----- Onboarding Email Request Event Service Layer -----

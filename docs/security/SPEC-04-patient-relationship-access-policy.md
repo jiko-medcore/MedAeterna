@@ -2,6 +2,8 @@
 
 **Status:** Patient-to-practitioner relationship semantics and an executable reference evaluator are complete. Route-by-route enforcement and database policy verification remain remediation work; this specification does not claim those controls are deployed.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. Undocumented choices remain fail-closed. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Purpose and boundaries
 
 SPEC-04 defines when a practitioner has a relationship to a patient that can satisfy the relationship gate in SPEC-03. It applies to clinical history, encounters, observations, conditions, prescriptions, laboratory results, and clinical documents.
@@ -98,3 +100,17 @@ These are policy unit tests. Route-level allow/deny tests, live RLS/grant tests,
 - SPEC-06 defines the canonical explicit grant schema and migration path; implementation remains pending.
 - SPEC-08 prohibits system-administrator access and break-glass in the current Phase 0 policy. A future clinical emergency workflow would require a separate approved specification.
 - Remediation integrates the evaluator or equivalent central policy into every protected route and tests privileged backend queries, RLS, and grants.
+
+### PH0-WP-01 implementation progress (20 November 2026, local, unmerged)
+
+On `security/phase-0-db-storage-release` @ `421d28a` (not pushed), `backend/app/core/security.py` implemented a canonical, trusted server-side `authorize_patient_access`/`require_patient_access` path that resolves target patient and organization context, fails closed on missing/ambiguous evidence, enforces patient self-access boundaries, denies system-administrator patient-data access, and evaluates practitioner relationship evidence from available trusted sources (active care-team/consent records in organization context with legacy assignment fallback only when organization context is absent), consistent with current schema-drift constraints. Touched clinical/care-team/record/consent/dashboard routes were migrated to require this resource-derived authorization. This does not complete relationship-source reconciliation, `patient_access_grants` migration/service integration, SPEC-05 consent enforcement, integration into every protected route/service, or live RLS/grant/route-runtime verification.
+
+### PH0-WP-02 implementation progress (20 November 2026, local, unmerged)
+
+`backend/app/core/clinical_authorization.py` uses the canonical relationship path after resolving patient/organization/encounter/appointment/care-team context from stored resources. Encounter-scoped medication, observation and condition reads now resolve the relationship target from the encounter row before any service query. Practitioner appointment-list access requires the authenticated practitioner identity and exact organization context; care-team reads require an active care-team membership for practitioners or exact-organization care authority for organization administrators.
+
+Relationship-source reconciliation, `patient_access_grants` integration, full SPEC-05 consent evaluation, legacy-source removal, and live RLS/grant/route-runtime verification remain open. See the [PH0-WP-02 completion record](PH0-WP-02-completion-record.md) for the positive/negative evidence recorded for these six routers.
+
+### Order 9 local relationship evidence (24 November 2026)
+
+The [Order 9 route record](PH0-WP-02-route-authorization-order-9-record.md) maps all 45 mounted sensitive routes. Practitioner IDs on clinical create payloads are bound to the verified actor; `/patients/mine` derives practitioner identity and one organization from trusted role state and returns only active organization-scoped `patient_care_team` relationships; QR generation no longer requires a full patient/clinical fetch. These are local application controls only. Canonical grants, full consent evaluation, relationship-source reconciliation, and hosted verification remain open.

@@ -1,7 +1,6 @@
 -- SPEC-11: table-by-table RLS, least-privilege grants, and trusted functions.
 -- Generated from app/core/table_access_inventory.py. Reviewed tables only;
 -- an unregistered table receives no grant and no policy by this migration.
-
 -- 1. Enable and force RLS on every reviewed public table.
 alter table public.audit_logs enable row level security;
 alter table public.audit_logs force row level security;
@@ -55,7 +54,6 @@ alter table public.terminology_codes enable row level security;
 alter table public.terminology_codes force row level security;
 alter table public.user_roles enable row level security;
 alter table public.user_roles force row level security;
-
 -- 2. Remove legacy policies. Grants are revoked below, so stale policies
 -- cannot survive as a misleading allow path in the catalog.
 drop policy if exists "Clinicians insert records" on public.medical_records;
@@ -69,7 +67,6 @@ drop policy if exists "Users can read own profile" on public.profiles;
 drop policy if exists "Read-only terminology" on public.terminology_codes;
 drop policy if exists "Trusted service manages role assignments" on public.user_roles;
 drop policy if exists "Users read own roles" on public.user_roles;
-
 -- 3. Create only the approved policies from the SPEC-11 inventory.
 create policy "Patients read own consent" on public.consent_records for SELECT to authenticated using (patient_id = (select auth.uid()));
 create policy "Patients insert own consent" on public.consent_records for INSERT to authenticated with check (patient_id = (select auth.uid()));
@@ -89,7 +86,6 @@ create policy "Patients read own reminders" on public.reminders for SELECT to au
 create policy "Read-only terminology" on public.terminology_codes for SELECT to anon, authenticated using (true);
 create policy "Users read own roles" on public.user_roles for SELECT to authenticated using (user_id = (select auth.uid()));
 create policy "Trusted service manages assignments" on public.user_roles for ALL to service_role using (true) with check (true);
-
 -- 4. Revoke every table privilege from client and service roles first.
 revoke all on table public.audit_logs from anon, authenticated, service_role;
 revoke all on table public.care_teams from anon, authenticated, service_role;
@@ -117,11 +113,9 @@ revoke all on table public.role_permissions from anon, authenticated, service_ro
 revoke all on table public.roles from anon, authenticated, service_role;
 revoke all on table public.terminology_codes from anon, authenticated, service_role;
 revoke all on table public.user_roles from anon, authenticated, service_role;
-
 -- 5. Grant only the commands in the inventory.
 -- anon
 grant SELECT on table public.terminology_codes to anon;
-
 -- authenticated
 grant INSERT, SELECT, UPDATE on table public.consent_records to authenticated;
 grant SELECT on table public.lab_results to authenticated;
@@ -134,7 +128,6 @@ grant INSERT, SELECT, UPDATE on table public.profiles to authenticated;
 grant SELECT on table public.reminders to authenticated;
 grant SELECT on table public.terminology_codes to authenticated;
 grant SELECT on table public.user_roles to authenticated;
-
 -- service_role
 grant INSERT, SELECT on table public.audit_logs to service_role;
 grant DELETE, INSERT, SELECT, UPDATE on table public.care_teams to service_role;
@@ -162,7 +155,6 @@ grant DELETE, INSERT, SELECT, UPDATE on table public.role_permissions to service
 grant DELETE, INSERT, SELECT, UPDATE on table public.roles to service_role;
 grant DELETE, INSERT, SELECT, UPDATE on table public.terminology_codes to service_role;
 grant DELETE, INSERT, SELECT, UPDATE on table public.user_roles to service_role;
-
 -- 6. Add indexes that support the approved RLS predicates and scoped lookups.
 create index if not exists idx_patients_organization_id on public.patients (organization_id);
 create index if not exists idx_medical_records_patient_id on public.medical_records (patient_id);
@@ -182,7 +174,6 @@ create index if not exists idx_roles_is_active on public.roles (is_active);
 create index if not exists idx_events_dead_letter_original_event_id on public.events_dead_letter (original_event_id);
 create index if not exists idx_events_dead_letter_replayed on public.events_dead_letter (replayed);
 create index if not exists idx_events_dead_letter_failed_at on public.events_dead_letter (failed_at);
-
 -- 7. Harden SECURITY DEFINER functions.
 revoke all on function public.can_manage_roles() from public, anon, authenticated, service_role;
 grant execute on function public.can_manage_roles() to service_role;

@@ -2,6 +2,8 @@
 
 **Status:** Lifecycle behavior is implemented. A local least-privilege follow-up has been applied and verified; that follow-up has not been deployed to production.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. Undocumented choices remain fail-closed. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Decisions
 
 ### Lifecycle
@@ -22,6 +24,8 @@
 | Ordinary user/practitioner | None | Any assignment or revocation through the role-management APIs |
 
 Self-revocation is permitted because it only reduces authority. The last active system administrator is protected at the database write boundary.
+
+**Order 8 follow-up (23 November 2026, local):** organization-scoped `practitioner_roles` records are now gated by the same SPEC-02 delegation rule (`authorize_practitioner_role_change` / `authorize_practitioner_role_read`): an org administrator for the exact target organization is required, self-assignment is denied, and writes are audit-before-mutation. `POST /practitioner-roles/` now requires a `practitioner_id` for the target practitioner; the previous self-assignment behavior was an authorization bypass. See the [PH0-WP-08/WP-09 review record](PH0-WP-08-WP-09-privileged-path-review-record.md) §10. Not deployed; production unchanged.
 
 ### Enforcement and audit
 

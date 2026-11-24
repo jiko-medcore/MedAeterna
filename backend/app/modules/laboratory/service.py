@@ -1,40 +1,65 @@
+from fastapi import HTTPException
+
 from app.core.security import require_patient_access
-from app.core.supabase_client import supabase
+from app.core.supabase_admin import supabase_admin
+
+LAB_SCOPE_SELECT = "id, patient_id"
+LAB_DETAIL_SELECT = (
+    "id, patient_id, status, result_data, performed_at, created_at, clinician_id"
+)
 
 
-# ----- Fetch Lab Record from Database -----
-def fetch_lab_record(lab_id: str) -> dict:
+def fetch_lab_scope(lab_id: str) -> dict | None:
+    """Fetch only the ownership field needed to authorize a lab detail read."""
     response = (
-        supabase
-        .table("lab_records")
-        .select("*")
+        supabase_admin.table("lab_results")
+        .select(LAB_SCOPE_SELECT)
         .eq("id", lab_id)
-        .single()
+        .limit(1)
         .execute()
     )
-
-    if not response.data:
-        return None
-
-    return response.data
+    rows = response.data or []
+    return rows[0] if rows else None
 
 
-# ----- Build Lab Detail Response -----
+def fetch_lab_detail(lab_id: str) -> dict | None:
+    """Fetch only approved display fields after patient access is authorized."""
+    response = (
+        supabase_admin.table("lab_results")
+        .select(LAB_DETAIL_SELECT)
+        .eq("id", lab_id)
+        .limit(1)
+        .execute()
+    )
+    rows = response.data or []
+    return rows[0] if rows else None
+
+
 def build_lab_detail(lab_id: str, current_user: dict) -> dict:
+    scope = fetch_lab_scope(lab_id)
+    if not scope:
+        raise HTTPException(status_code=404, detail="Lab result not found")
 
-    lab = fetch_lab_record(lab_id)
+    patient_id = scope.get("patient_id")
+    if not patient_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    require_patient_access(str(patient_id), current_user)
 
-    require_patient_access(lab["patient_id"], current_user)
+    lab = fetch_lab_detail(lab_id)
+    if not lab:
+        raise HTTPException(status_code=404, detail="Lab result not found")
 
+    # No `raw` full-row projection: only reviewed clinical/display fields leave
+    # this service, and only after the patient-access check above.
+    # These are the reviewed display columns from the canonical lab_results
+    # relation. No full-row/`raw` projection is returned.
     return {
-        "id": lab["id"],
-        "testName": lab["test_name"],
-        "status": lab["status"],
+        "id": lab.get("id"),
+        "patient_id": lab.get("patient_id"),
+        "status": lab.get("status"),
+        "result": lab.get("result_data"),
         "metadata": {
-            "performedDate": lab["performed_date"],
-            "orderingProvider": lab["ordering_provider"],
-            "performingFacility": lab["facility_name"]
+            "performed_date": lab.get("performed_at") or lab.get("created_at"),
+            "ordering_provider": lab.get("clinician_id"),
         },
-        "results": lab["results"],
-        "attachments": lab.get("attachments", [])
     }

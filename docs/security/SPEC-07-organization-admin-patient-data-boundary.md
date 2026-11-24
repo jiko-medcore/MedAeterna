@@ -2,6 +2,8 @@
 
 **Status:** Administrative data boundary selected and covered by a reference policy. Production routes, database access, and audit integration remain remediation work.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. Undocumented choices remain fail-closed. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Decision
 
 An organization-administrator assignment does not grant access to a patient's full profile, clinical record, consent, or care relationship. The default is deny. A separate, read-only `patient_admin_data` view may return only the fields listed below, for one verified patient and one server-defined administrative purpose within the exact organization.
@@ -71,3 +73,7 @@ Focused command: `.venv/Scripts/python.exe -m pytest tests/core/test_organizatio
 Regression command: `.venv/Scripts/python.exe -m pytest tests/core/test_organization_admin_patient_access.py tests/core/test_action_authorization.py tests/core/test_role_catalogue.py -q --tb=short -p no:cacheprovider` (run from `backend/`). Result: **52 passed**. Both runs reported 12 dependency deprecation warnings from installed `pyiceberg`/Pydantic packages; no tests failed.
 
 `git diff --check` is clean. Tests validate pure policy behavior; they do not prove route wiring, RLS/grants, database views, field-source mapping, audit delivery, or deployed configuration. Those remain open implementation checks before SEC findings can be closed.
+
+### Order 9 local route evidence (24 November 2026)
+
+The [Order 9 route record](PH0-WP-02-route-authorization-order-9-record.md) maps the mounted care-team and organization-admin-sensitive paths to exact-organization checks, patient-organization boundary verification, no self-assignment, and attribution metadata. These are local route/service controls; RLS, field-source proof, audit delivery, and deployed configuration remain unverified.

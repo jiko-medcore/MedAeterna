@@ -1,3 +1,6 @@
+from fastapi import HTTPException
+
+from app.core.clinical_authorization import PATIENT_LIST, ensure_authorized_context
 from app.core.supabase_client import supabase
 from app.core.supabase_admin import supabase_admin
 from app.shared.utils.timeline_event_trans_helper import transform_record_to_event
@@ -20,6 +23,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# Reviewed projections. Patient profile/summary/export paths never need the
+# full patient row or the full clinical record row.
+PATIENT_PROFILE_SELECT = (
+    "id, first_name, last_name, middle_name, date_of_birth, gender, blood_group, "
+    "phone, profile_image_url, emergency_contact_name, emergency_contact_phone, "
+    "organization_id, medical_id"
+)
+PATIENT_EXPORT_SELECT = "id, fhir_metadata"
+PATIENT_SUMMARY_SELECT = "id, first_name, last_name, gender, date_of_birth"
+PATIENT_RECORD_SUMMARY_SELECT = "id, created_at, record_type, clinical_data"
+PATIENT_TIMELINE_SELECT = "id, created_at, record_type, clinical_data"
+PATIENT_LIST_SELECT = "id, medical_id, first_name, last_name, date_of_birth, gender, profile_image_url"
+
+
 # ----- Get Patient Summary -----
 def get_patient_summary(patient_id: str) -> Dict[str, Any]:
     """
@@ -33,7 +50,7 @@ def get_patient_summary(patient_id: str) -> Dict[str, Any]:
     patient_resp = (
         supabase
         .table("patients")
-        .select("*")
+        .select(PATIENT_SUMMARY_SELECT)
         .eq("id", patient_id)
         .execute()
     )
@@ -49,7 +66,7 @@ def get_patient_summary(patient_id: str) -> Dict[str, Any]:
     records_resp = (
         supabase
         .table("medical_records")
-        .select("*")
+        .select(PATIENT_RECORD_SUMMARY_SELECT)
         .eq("patient_id", patient_id)
         .order("created_at", desc=True)
         .execute()
@@ -149,7 +166,7 @@ def get_or_create_patient(
     response = (
         supabase
         .table("patients")
-        .select("*")
+        .select(PATIENT_PROFILE_SELECT)
         .eq("id", user_id)
         .execute()
     )
@@ -242,7 +259,7 @@ def get_patient_with_records(patient_id: str):
     patient = (
         supabase
         .table("patients")
-        .select("*")
+        .select(PATIENT_EXPORT_SELECT)
         .eq("id", patient_id)
         .execute()
     )
@@ -271,7 +288,7 @@ def build_patient_timeline(patient_id: UUID):
     response = (
         supabase
         .table("medical_records")
-        .select("*")
+        .select(PATIENT_TIMELINE_SELECT)
         .eq("patient_id", str(patient_id))
         .order("created_at", desc=True)
         .execute()
@@ -348,29 +365,43 @@ def assign_clinician_to_patient(
 
 
 # ---- Get My Patients for Clinician ----
-def get_my_patients(clinician_id: str):
+def get_my_patients(*, authorized_context: Dict[str, Any]):
+    """List patients only through an active, organization-scoped care relationship."""
+    ensure_authorized_context(
+        authorized_context,
+        resource=PATIENT_LIST,
+        action="read",
+    )
+    practitioner_id = str(authorized_context.get("authorized_practitioner_id") or "")
+    organization_id = str(authorized_context.get("authorized_organization_id") or "")
+    if not practitioner_id or not organization_id:
+        raise HTTPException(status_code=403, detail="Practitioner organization context required")
     assignments = (
-        supabase
-        .table("clinicians_patients")
+        supabase_admin
+        .table("patient_care_team")
         .select("patient_id")
-        .eq("clinician_id", clinician_id)
-        .eq("active", True)
+        .eq("practitioner_id", practitioner_id)
+        .eq("organization_id", organization_id)
+        .eq("status", "active")
         .execute()
         .data
+        or []
     )
 
-    patient_ids = [a["patient_id"] for a in assignments]
+    patient_ids = [assignment["patient_id"] for assignment in assignments if assignment.get("patient_id")]
 
     if not patient_ids:
         return []
 
     return (
-        supabase
+        supabase_admin
         .table("patients")
-        .select("*")
+        .select(PATIENT_LIST_SELECT)
         .in_("id", patient_ids)
+        .eq("organization_id", organization_id)
         .execute()
         .data
+        or []
     )
 
 
@@ -379,7 +410,7 @@ def get_patient_profile(patient_id: str) -> Dict[str, Any]:
     response = (
         supabase
         .table("patients")
-        .select("*")
+        .select(PATIENT_PROFILE_SELECT)
         .eq("id", patient_id)
         .execute()
     )

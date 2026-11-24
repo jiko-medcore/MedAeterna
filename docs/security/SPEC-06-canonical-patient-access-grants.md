@@ -2,6 +2,8 @@
 
 **Status:** Canonical explicit patient-grant table and migration path are selected. A Python reference model and lifecycle tests validate the target contract. No database migration has been created or applied in this specification milestone.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. No migration, cutover, legacy-row promotion or treatment-source choice is implied. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Decision
 
 Use **`public.patient_access_grants`** as the sole canonical table for explicit, patient-approved practitioner access grants. Do not use `patient_access` as a compatibility table or view.
@@ -103,3 +105,7 @@ Related Phase 0 verification command: `.venv/Scripts/python.exe -m pytest tests/
 Read-only local catalog checks confirmed both candidate grant tables are absent and the standalone SQL file is not represented in local migration history. No schema or rows were changed.
 
 These are reference-model tests and local catalog inspection, not a database migration or live RLS test. Migration pgTAP, route-level tests, and hosted-project preflight remain for remediation. SEC-06 is not a closed implementation finding until those changes are applied and verified.
+
+### Order 9 local route evidence (24 November 2026)
+
+The [Order 9 route record](PH0-WP-02-route-authorization-order-9-record.md) maps all 45 mounted sensitive routes. The clinician patient-list path uses active, organization-scoped `patient_care_team` rows through a closed service context; this is an existing relationship source, not canonical `patient_access_grants` integration. No grant migration, grant service, or local/hosted RLS proof was added by order 9.

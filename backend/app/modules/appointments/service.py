@@ -1,5 +1,12 @@
 from fastapi import HTTPException
+from app.core.clinical_authorization import APPOINTMENT, ensure_authorized_context
 from app.core.supabase_admin import supabase_admin
+
+APPOINTMENT_LIST_SELECT = (
+    "id, patient_id, organization_id, practitioner_id, appointment_type, status, "
+    "start_time, end_time, reason, location, notes, created_at, updated_at"
+)
+APPOINTMENT_UPDATE_SELECT = "id, start_time, end_time, status"
 
 
 # ----- Validate Appointment Time Service -----
@@ -50,8 +57,17 @@ def validate_practitioner_availability(
 # ----- Create Appointment Service -----
 def create_appointment(
     payload,
-    created_by: str
+    created_by: str,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=APPOINTMENT,
+        action="create",
+        patient_id=str(payload.patient_id),
+        organization_id=str(payload.organization_id),
+    )
 
     validate_appointment_times(
         payload.start_time,
@@ -96,14 +112,22 @@ def create_appointment(
 
 # ----- Get Patients Appointment Service -----
 def get_patient_appointments(
-    patient_id: str
+    patient_id: str,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=APPOINTMENT,
+        action="read",
+        patient_id=str(patient_id),
+    )
 
     response = (
         supabase_admin
         .table("appointments")
-        .select("""
-            *,
+        .select(f"""
+            {APPOINTMENT_LIST_SELECT},
             practitioners (
                 id,
                 first_name,
@@ -124,14 +148,23 @@ def get_patient_appointments(
 
 # ----- Get List Practitioners Appointments Service -----
 def get_practitioner_appointments(
-    practitioner_id: str
+    practitioner_id: str,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=APPOINTMENT,
+        action="read",
+    )
+    if str(authorized_context.get("authorized_practitioner_id") or "") != str(practitioner_id):
+        raise HTTPException(status_code=403, detail="Practitioner scope mismatch")
 
     response = (
         supabase_admin
         .table("appointments")
-        .select("""
-            *,
+        .select(f"""
+            {APPOINTMENT_LIST_SELECT},
             patients (
                 id,
                 first_name,
@@ -153,8 +186,16 @@ def get_practitioner_appointments(
 # ----- Update Appointment Service -----
 def update_appointment(
     appointment_id: str,
-    payload
+    payload,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=APPOINTMENT,
+        action="update",
+        resource_id=str(appointment_id),
+    )
 
     update_data = payload.model_dump(
         exclude_unset=True
@@ -181,7 +222,7 @@ def update_appointment(
     existing = (
         supabase_admin
         .table("appointments")
-        .select("*")
+        .select(APPOINTMENT_UPDATE_SELECT)
         .eq("id", appointment_id)
         .single()
         .execute()

@@ -1,6 +1,8 @@
 # SPEC-10: Trusted Backend and Caller-RLS Access
 
-**Status:** Execution modes and an authorization reference gate are defined and tested. Import-time credential logging has been removed, and a per-request caller-scoped client pattern is available. Existing query call sites have not yet been migrated or exhaustively authorized; those enforcement gaps remain explicit.
+**Status:** Execution modes and an authorization reference gate are defined and tested. Import-time credential logging has been removed, and a per-request caller-scoped client pattern is available. PH0-WP-01 (`security/phase-0-db-storage-release` @ `421d28a`, 20 November 2026, local, unmerged) reinforced trusted-backend authorization in several sensitive/admin routes before privileged operations. Order 8 now records a privileged-path and background-task review in the [PH0-WP-08/WP-09 review record](PH0-WP-08-WP-09-privileged-path-review-record.md), but existing query call sites have not been migrated to caller-scoped RLS and complete route-by-route authorization evidence remains open; those enforcement gaps remain explicit.
+
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. No existing query site is assumed to use caller RLS or complete execution evidence. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
 
 ## Decision
 
@@ -52,6 +54,20 @@ Source review for this SPEC found:
 - `supabase_client.py` and `supabase_admin.py` previously printed the project URL and API-key prefixes at import. Those prints have been removed.
 - Existing application queries still include both shared-client patterns. Updating every route/service to use one of the modes, auditing each service-role call site, and proving effective hosted grants/RLS remain implementation work. No database schema or hosted project setting was changed for SPEC-10.
 
+### PH0-WP-01 branch progress (20 November 2026, local, unmerged)
+
+Implemented on `security/phase-0-db-storage-release` @ `421d28a` (not pushed):
+
+- `backend/app/core/security.py` consolidated canonical authz contracts and now performs trusted, resource-derived/fail-closed authorization checks (including org-scoped `get_user_permissions`/`authorize_permission`/`require_permission` resolution and encounter/patient access checks) before allowing privileged data access in migrated paths.
+- Sensitive/admin routes touched in this slice (medication-request encounter retrieval, selected clinical reads/writes, records/lab/patient/care-team/consent/dashboard/medical-history paths, and admin event/audit/metrics handling) were migrated to require authenticated, explicit per-operation authorization decisions and fail-closed behavior; admin operational surfaces now avoid returning raw event payload/error details.
+- These changes improve application-side gating of privileged/service-role-backed operations in scope but do **not** constitute caller-scoped RLS migration, a complete service-role call-site inventory/justification, or proof of effective grants/RLS/hosted behavior. Call sites continue to rely on shared clients unless explicitly migrated; route/runtime and database verification remain required.
+
+### PH0-WP-02 service-boundary progress (20 November 2026, local, unmerged)
+
+The six clinical modules migrated under PH0-WP-02 now require an authorization context at every migrated service entry point. `ensure_authorized_context()` rejects missing contexts and any action, patient, organization, or resource-id mismatch before a service-role query. Encounter-scoped reads resolve the target from stored encounter data in the FastAPI dependency layer, so a denial occurs before the service function is entered. Care-team mutations also emit attributable audit records.
+
+This satisfies the trusted-backend **application gate** requirement for the selected route/service boundary locally. It does not change the client to caller-scoped RLS, prove effective database grants/RLS, complete a repository-wide service-role call-site inventory, or provide hosted verification. Details and test evidence are in the [PH0-WP-02 completion record](PH0-WP-02-completion-record.md).
+
 ## Executable policy and tests
 
 `backend/tests/core/test_database_execution_policy.py` checks:
@@ -84,3 +100,7 @@ Focused command: `.venv/Scripts/python.exe -m pytest tests/core/test_database_ex
 Security-policy regression command: `.venv/Scripts/python.exe -m pytest tests/core/test_database_execution_policy.py tests/core/test_action_authorization.py tests/core/test_role_catalogue.py tests/core/test_system_admin_patient_access.py tests/core/test_organization_admin_patient_access.py tests/core/test_patient_relationship_policy.py tests/core/test_consent_policy.py tests/core/test_patient_access_grants_schema.py tests/core/test_operational_event_policy.py tests/core/test_event_logging.py -q --tb=short -p no:cacheprovider` (run from `backend/`). Result: **390 passed**.
 
 The focused SDK wiring test was run with installed `supabase-py` 2.27.1 and requires no live database. It passed. No database or hosted Supabase credentials were used for this SPEC. Deprecation warnings originate from installed dependencies and the SDK's deprecated PostgREST constructor arguments.
+
+### Order 9 local service-boundary evidence (24 November 2026)
+
+The [Order 9 route record](PH0-WP-02-route-authorization-order-9-record.md) adds 45-route local mapping and tests showing denial before privileged service execution on wrong-role, wrong-organization, cross-patient, invalid-token, and forged-practitioner paths. The `/patients/mine` service now requires a closed authorization context. This does not migrate the remaining shared publishable-client call sites (F-3), provide caller-scoped RLS propagation, or supply worker-identity evidence.

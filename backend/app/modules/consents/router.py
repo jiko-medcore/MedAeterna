@@ -1,54 +1,42 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+
 from app.core.security import get_current_user
-from app.modules.consents.schemas import (
-    ConsentGrant,
-    ConsentRevoke
-)
+from app.modules.consents.schemas import ConsentGrant, ConsentRevoke
 from app.modules.consents.service import (
+    get_patient_consents,
     grant_consent,
     revoke_consent,
-    get_patient_consents
 )
 
 
-router = APIRouter(
-    prefix="/consents",
-    tags=["Consents"]
-)
+router = APIRouter(prefix="/consents", tags=["Consents"])
 
 
-# ----- Grant Consent endpoint -----
+def _require_patient_self(current_user: dict) -> str:
+    if not current_user.get("is_patient"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    return str(current_user["id"])
+
+
 @router.post("/grant")
 def create_consent(
     payload: ConsentGrant,
-    user=Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
-
-    return grant_consent(
-        user["id"],
-        payload
-    )
+    patient_id = _require_patient_self(current_user)
+    return grant_consent(patient_id, payload, actor_user_id=str(current_user["id"]))
 
 
-#  ----- Revoke Consent endpoint -----
 @router.post("/revoke")
 def revoke_patient_consent(
     payload: ConsentRevoke,
-    user=Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
-
-    return revoke_consent(
-        user["id"],
-        payload
-    )
+    patient_id = _require_patient_self(current_user)
+    return revoke_consent(patient_id, payload, actor_user_id=str(current_user["id"]))
 
 
-# ----- Get List Patinets Consents -----
 @router.get("/me")
-def my_consents(
-    user=Depends(get_current_user)
-):
-
-    return get_patient_consents(
-        user["id"]
-    )
+def my_consents(current_user: dict = Depends(get_current_user)):
+    patient_id = _require_patient_self(current_user)
+    return get_patient_consents(patient_id)

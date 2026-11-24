@@ -106,7 +106,7 @@ SELECT ok(
 SELECT ok(
     EXISTS (
         SELECT 1 FROM supabase_migrations.schema_migrations
-        WHERE name = 'spec12_storage_bucket_policy'
+        WHERE version = '20261120110644'
     ),
     'SPEC-12 migration is recorded'
 );

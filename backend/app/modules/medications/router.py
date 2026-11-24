@@ -1,114 +1,106 @@
-from fastapi import (
-    APIRouter,
-    Depends,
-    HTTPException
-)
-from app.core.security import (
-    get_current_user
-)
-from app.core.supabase_admin import (
-    supabase_admin
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.core import security
+from app.core.clinical_authorization import (
+    CLINICAL_RECORD,
+    authorize_clinical_access,
+    bind_clinical_actor,
+    require_encounter_clinical,
+    require_patient_clinical,
+    require_table_clinical,
 )
 from app.modules.medications.schemas import (
     MedicationRequestCreate,
-    MedicationRequestUpdate
+    MedicationRequestUpdate,
 )
 from app.modules.medications.service import (
     create_medication,
-    get_patient_medication,
     get_encounter_medication,
-    update_medication
-)
-from app.modules.observations.dependencies import (
-    require_patient_access_manual
+    get_patient_medication,
+    update_medication,
 )
 
 
-
-# ----- Medications Router Setup -----
 router = APIRouter(
     prefix="/medication-requests",
-    tags=["Medication Requests"]
+    tags=["Medication Requests"],
 )
 
 
-
-# ----- Create Medication Endpoint -----
 @router.post("/")
 def create_new_medication(
     payload: MedicationRequestCreate,
-    user=Depends(get_current_user)
+    current_user: dict = Depends(security.get_current_user),
 ):
-
-    require_patient_access_manual(
-        patient_id=payload.patient_id,
-        user_id=user["id"]
+    # Resolve encounter->patient/org from stored data before authorizing.
+    encounter = security.fetch_resource(
+        "encounters",
+        "id, patient_id, organization_id",
+        id=str(payload.encounter_id),
     )
+    if not encounter:
+        raise HTTPException(status_code=404, detail="Encounter not found")
+    if str(encounter.get("patient_id")) != str(payload.patient_id):
+        raise HTTPException(
+            status_code=400, detail="Encounter does not belong to patient"
+        )
+    if encounter.get("organization_id") and str(encounter["organization_id"]) != str(
+        payload.organization_id
+    ):
+        raise HTTPException(
+            status_code=400, detail="Encounter organization does not match request"
+        )
 
+    context = authorize_clinical_access(
+        current_user,
+        resource=CLINICAL_RECORD,
+        action="create",
+        patient_id=str(payload.patient_id),
+        organization_id=str(payload.organization_id),
+        verified_conditions={"clinical_workflow"},
+    )
+    payload = bind_clinical_actor(payload, context)
     return create_medication(
         payload=payload,
-        created_by=user["id"]
+        created_by=current_user["id"],
+        authorized_context=context,
     )
 
 
-
-# ----- Get Medication Service Endpoint -----
 @router.get("/patient/{patient_id}")
 def get_medication(
     patient_id: str,
-    user=Depends(get_current_user)
+    context: dict = Depends(require_patient_clinical(CLINICAL_RECORD, "read")),
 ):
-
-    require_patient_access_manual(
-        patient_id=patient_id,
-        user_id=user["id"]
-    )
-
-    return get_patient_medication(
-        patient_id
-    )
+    return get_patient_medication(patient_id, authorized_context=context)
 
 
-# ----- Get Encounter Medication Endpoint -----
 @router.get("/encounter/{encounter_id}")
 def get_patient_encounter_medication(
-    encounter_id: str
+    encounter_id: str,
+    context: dict = Depends(require_encounter_clinical(CLINICAL_RECORD, "read")),
 ):
+    # Encounter identity, patient and organization were resolved and authorized
+    # before this handler ran; no service query happens on a denied request.
+    return get_encounter_medication(encounter_id, authorized_context=context)
 
-    return get_encounter_medication(
-        encounter_id
-    )
 
-
-# ----- Update Medicaton Endpoint -----
 @router.patch("/{medication_request_id}")
 def update_medication_request_endpoint(
     medication_request_id: str,
     payload: MedicationRequestUpdate,
-    user=Depends(get_current_user)
-):
-
-    medication = (
-        supabase_admin
-        .table("medication_requests")
-        .select("patient_id")
-        .eq("id", medication_request_id)
-        .single()
-        .execute()
-    )
-
-    if not medication.data:
-        raise HTTPException(
-            404,
-            "Medication request not found"
+    context: dict = Depends(
+        require_table_clinical(
+            "medication_requests",
+            "medication_request_id",
+            "update",
+            # The update schema excludes patient/encounter/organization fields.
+            verified_conditions={"clinical_workflow"},
         )
-
-    require_patient_access_manual(
-        patient_id=medication.data["patient_id"],
-        user_id=user["id"]
-    )
-
+    ),
+):
     return update_medication(
         medication_request_id=medication_request_id,
-        payload=payload
+        payload=payload,
+        authorized_context=context,
     )

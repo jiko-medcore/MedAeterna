@@ -62,7 +62,7 @@ Storage's configured MIME and size limits are the first layer; magic-byte inspec
 - Shared validator: `backend/app/core/storage_upload_validation.py`
 - Branding compatibility constants: `backend/app/modules/organizations/branding/constants.py`
 - Local bucket config: `backend/supabase/config.toml`
-- Migration: `backend/supabase/migrations/20261120130000_spec12_storage_bucket_policy.sql`
+- Migration: `backend/supabase/migrations/20261120110644_spec12_storage_bucket_policy.sql`
 - Python tests: `backend/tests/core/test_storage_access_inventory.py`, `backend/tests/core/test_storage_upload_validation.py`, `backend/tests/patients/test_avatar_upload.py`, `backend/tests/organizations/branding/test_storage.py`, `backend/tests/organizations/test_router.py`
 - Catalog tests: `backend/supabase/tests/database/spec12_storage_bucket_policy.test.sql`
 - API catalog update: `docs/FRONTEND_API_CATALOG.md`
@@ -80,7 +80,7 @@ Storage's configured MIME and size limits are the first layer; magic-byte inspec
 
 ## Verification evidence (local, 2026-11-20)
 
-The migration was applied through the Supabase MCP `apply_migration` endpoint. `apply_migration` assigns its own version timestamp, so it is recorded as `20261120110644 / spec12_storage_bucket_policy`; the repository filename remains `20261120130000_spec12_storage_bucket_policy.sql`.
+The migration was applied through the Supabase MCP `apply_migration` endpoint. `apply_migration` assigns its own version timestamp, so it is recorded in `supabase_migrations.schema_migrations` and the repository migration file as `20261120110644 / spec12_storage_bucket_policy` to reconcile local release history drift.
 
 Live catalog checks against the applied database:
 

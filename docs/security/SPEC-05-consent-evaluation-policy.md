@@ -2,6 +2,8 @@
 
 **Status:** Consent requirement, scope, lifecycle, precedence, and an executable reference evaluator are defined and tested. Current consent routes and database storage do not yet enforce this policy; implementation and live behavior remain remediation work.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. No migration, runtime integration or unapproved purpose/recipient/resource choice is implied. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Purpose and boundaries
 
 SPEC-05 defines when patient consent satisfies the consent gate referenced by SPEC-03. It applies to practitioner clinical use of clinical history, encounters, observations, conditions, prescriptions, laboratory results, and clinical documents.
@@ -112,3 +114,7 @@ These are policy unit tests and read-only catalog checks. Route-level grant/revo
 - Add table-by-table grants and RLS policies plus pgTAP tests; include authorization when backend code uses a privileged client.
 - Integrate consent evaluation with SPEC-03 action, SPEC-04 relationship, role scope, and the approved resource workflow.
 - Emergency consent and break-glass remain denied under SPEC-08; a future clinical emergency workflow requires a separate approved specification.
+
+### Order 9 local route evidence (24 November 2026)
+
+The [Order 9 route map](PH0-WP-02-route-authorization-order-9-record.md) records the three mounted consent routes as patient-self-only, with patient identity taken from the authenticated actor and a reviewed consent projection for the list path. This is local route adoption evidence only. Full purpose, recipient, resource-family, lifecycle, provenance, and effective database enforcement remain open.

@@ -2,6 +2,8 @@
 
 **Status:** The role/resource/action decisions and executable reference policy are complete. Route-by-route adoption remains a Phase 0 remediation task and is not claimed by this specification.
 
+**Order 5 approval (21 November 2026):** Approved for implementation by the designated MedAeterna technical/security owner for the documented decisions only; not production acceptance. Undocumented choices remain fail-closed. See [PH0-WP-06 policy approval record](PH0-WP-06-SPEC-approval-and-consent-access-model.md).
+
 ## Purpose and boundaries
 
 SPEC-03 defines what each principal category may do for each resource family. It applies the role categories and scopes from SPEC-01 and the role lifecycle/delegation rules from SPEC-02.
@@ -9,6 +11,8 @@ SPEC-03 defines what each principal category may do for each resource family. It
 This matrix does not make organization membership a patient-care relationship. SPEC-07 defines a separate, minimum-field administrative patient-data view; full profile and clinical access remain denied to organization administrators. SPEC-08 prohibits patient-data access and break-glass access for system administrators, and requires patient data to be redacted from their operational-event and audit views. SPEC-04 and SPEC-05 continue to deny emergency patient access; any future clinical workflow needs separate approval. SPEC-09 governs the remaining operational-event details.
 
 The policy registry in backend/app/core/action_authorization.py is an executable reference for the role/action part of a decision. It does not access the database, verify relationship facts, or secure a route by itself. A future route guard must obtain required condition results from trusted application logic and apply this decision before using a privileged backend client. Phase 0 SEC findings for missing or incomplete route authorization remain open until route-level tests and evidence close them.
+
+**Order 8 follow-up (23 November 2026, local):** the organization-configuration row for profile updates is now enforced at `PATCH /organizations/profile` by an exact-scope SPEC-01/SPEC-02 organization-administrator check, with the organization resolved from trusted role context and the audit record written before mutation. Multi-organization administrators fail closed on this self-scoped route. The SPEC-03 matrix itself is unchanged; see the [PH0-WP-08/WP-09 review record](PH0-WP-08-WP-09-privileged-path-review-record.md) §12. Not deployed; production unchanged.
 
 ## Decision rules
 
@@ -127,3 +131,17 @@ SPEC-09 event-policy regression command: `.venv/Scripts/python.exe -m pytest tes
 ## Deferred enforcement work
 
 This specification completes the action-policy decision milestone in Phase 0. It does not close SEC findings for route authentication, resource authorization, service-role query context, RLS/grants, storage, or event endpoints. Route-level allow/deny tests and database/storage tests are required before those findings can be closed. Existing require_permission and role-permission data are not proof that this matrix is enforced; review them during the related SEC remediation.
+
+### PH0-WP-01 implementation progress (20 November 2026, local, unmerged)
+
+On `security/phase-0-db-storage-release` @ `421d28a` (not pushed), `backend/app/core/security.py` was consolidated to canonical, resource-derived/fail-closed authorization contracts and several callers were migrated toward this matrix's boundaries: patient/encounter-derived access checks were enforced on touched clinical read/write paths (including medication-request encounter retrieval), `require_permission`/`authorize_permission` now require explicit or safely derived trusted organization context with org-scoped permission evaluation, and admin event/audit/metrics routes were hardened with SPEC-09-aligned role/purpose gates and safe projections. This is initial adoption evidence only; it does not establish complete route-by-route enforcement, service/domain boundary guarantees for every privileged query path, caller-scoped RLS propagation, or staging/hosted/effective-access verification for the matrix conditions.
+
+### PH0-WP-02 implementation progress (20 November 2026, local, unmerged)
+
+`backend/app/core/clinical_authorization.py` now calls `evaluate_action()` for all 24 endpoints in the medication, encounter, appointment, observation, condition and care-team routers. Patient/practitioner/organization/system-admin rules are bound to patient, encounter, appointment, or care-team context loaded from trusted server-side resources; request payload values are not relationship evidence. Service functions require the returned authorization context and recheck action, patient, organization, and resource scope before service-role queries.
+
+The SPEC-03 `consent_if_required` condition for practitioner clinical-record actions is currently satisfied through the canonical patient-access path, which accepts an active organization-bound care-team relationship or an active consent record. This is **not** full SPEC-05 purpose/resource-family/recipient/lifecycle evaluation; consent enforcement remains open under SEC-19. See the [PH0-WP-02 completion record](PH0-WP-02-completion-record.md) for implemented decisions, focused evidence, and limits. Matrix adoption is still incomplete outside these six routers.
+
+### Order 9 local route adoption (24 November 2026, local, unmerged)
+
+The [Order 9 route map](PH0-WP-02-route-authorization-order-9-record.md) covers all 45 mounted sensitive clinical/patient routes. Clinical create payloads are bound to the authorized practitioner actor, and mismatched client-supplied practitioner IDs are denied before service execution. The closed internal `patient_list` context is derived from trusted role state and active organization-scoped care-team rows; it is a service-boundary check, not a new broad policy family. Local tests pass, but hosted/effective-access proof and SEC closure do not.

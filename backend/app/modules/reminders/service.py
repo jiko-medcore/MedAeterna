@@ -9,9 +9,9 @@ def get_upcoming_reminders(patient_id: str):
     response = (
         supabase
         .table("reminders")
-        .select("*")
+        .select("id, patient_id, title, description, reminder_date, status, created_at")
         .eq("patient_id", patient_id)
-        .gte("scheduled_at", now)
+        .gte("reminder_date", now)
         .execute()
     )
 

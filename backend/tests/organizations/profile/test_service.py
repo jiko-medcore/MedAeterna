@@ -80,6 +80,12 @@ def test_update_profile(
         "org1",
         payload,
         actor_id="user1",
+        actor_roles=[{
+            "name": "org_admin",
+            "role_type": "organization",
+            "organization_id": "org1",
+            "category": "organization_administrator",
+        }],
     )
     
     assert result.id == str(

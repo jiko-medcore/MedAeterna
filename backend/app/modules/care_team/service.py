@@ -1,11 +1,34 @@
 from fastapi import HTTPException
+from app.core.clinical_authorization import (
+    CARE_TEAM,
+    audit_clinical_write,
+    ensure_authorized_context,
+)
 from app.core.supabase_admin import supabase_admin
+
+CARE_TEAM_LIST_SELECT = (
+    "id, patient_id, clinician_id, organization_id, name, status, category, "
+    "reason, managing_organization_id, notes, created_at, updated_at"
+)
+CARE_TEAM_PARTICIPANT_SELECT = (
+    "id, care_team_id, practitioner_id, role_code, responsibility, start_date, "
+    "end_date, active, created_at, updated_at"
+)
 
 
 # ----- Create Care Team Service -----
 def create_care_team(
-    payload
+    payload,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CARE_TEAM,
+        action="create",
+        patient_id=str(payload.patient_id),
+        organization_id=str(payload.organization_id),
+    )
 
     response = (
         supabase_admin
@@ -25,14 +48,29 @@ def create_care_team(
         .execute()
     )
 
+    resource_id = str(response.data[0]["id"])
+    audit_clinical_write(
+        authorized_context,
+        action="create",
+        resource_type="care_team",
+        resource_id=resource_id,
+    )
     return response.data[0]
 
 
 # ----- Add Practitioner to Care Team Service -----
 def add_care_team_participant(
     care_team_id: str,
-    payload
+    payload,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CARE_TEAM,
+        action="update",
+        resource_id=str(care_team_id),
+    )
 
     existing = (
         supabase_admin
@@ -72,26 +110,39 @@ def add_care_team_participant(
         .execute()
     )
 
+    audit_clinical_write(
+        authorized_context,
+        action="add_participant",
+        resource_type="care_team",
+        resource_id=str(care_team_id),
+    )
     return response.data[0]
-
 
 
 # ----- Get Patients Care Team -----
 def get_patient_care_teams(
-    patient_id: str
+    patient_id: str,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CARE_TEAM,
+        action="read",
+        patient_id=str(patient_id),
+    )
 
     response = (
         supabase_admin
         .table("care_teams")
-        .select("""
-            *,
+        .select(f"""
+            {CARE_TEAM_LIST_SELECT},
             organizations (
                 id,
                 name
             ),
             care_team_participants (
-                *,
+                {CARE_TEAM_PARTICIPANT_SELECT},
                 practitioners (
                     id,
                     first_name,
@@ -110,8 +161,16 @@ def get_patient_care_teams(
 # ----- Update Care Team Service -----
 def update_care_team_participant(
     participant_id: str,
-    payload
+    payload,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CARE_TEAM,
+        action="update",
+        resource_id=str(participant_id),
+    )
 
     update_data = payload.model_dump(
         exclude_unset=True
@@ -143,6 +202,12 @@ def update_care_team_participant(
         .execute()
     )
 
+    audit_clinical_write(
+        authorized_context,
+        action="update_participant",
+        resource_type="care_team_participant",
+        resource_id=str(participant_id),
+    )
     return response.data[0]
 
 
@@ -150,8 +215,17 @@ def update_care_team_participant(
 def assign_care_team(
     practitioner_id: str,
     payload,
-    assigned_by: str
+    assigned_by: str,
+    *,
+    authorized_context: dict,
 ):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CARE_TEAM,
+        action="administer",
+        patient_id=str(payload.patient_id),
+        organization_id=str(payload.organization_id),
+    )
 
     existing = (
         supabase_admin
@@ -193,4 +267,11 @@ def assign_care_team(
         .execute()
     )
 
+    resource_id = str(response.data[0]["id"])
+    audit_clinical_write(
+        authorized_context,
+        action="assign",
+        resource_type="patient_care_team",
+        resource_id=resource_id,
+    )
     return response.data[0]

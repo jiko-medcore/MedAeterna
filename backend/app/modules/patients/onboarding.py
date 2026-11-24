@@ -8,7 +8,6 @@ from app.modules.patients.exceptions import EmailDeliveryError
 from app.core.audit.service import log_audit_event
 from app.core.audit.actions import AuditActions
 import logging
-import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +15,7 @@ logger = logging.getLogger(__name__)
 # ----- Onboarding Patient Email Serivice -----
 def send_onboarding_email(patient_id: str):
 
-    logger.info(
-        f"ONBOARDING STARTED FOR {patient_id}"
-    )
-    print(
-        f"ONBOARDING STARTED FOR {patient_id}"
-    )
+    logger.info("ONBOARDING_EMAIL_STARTED")
 
     try:
         result = (
@@ -33,14 +27,12 @@ def send_onboarding_email(patient_id: str):
             .execute()
         )
         patient = getattr(result, "data", None) if result is not None else None
-        logger.info(f"PATIENT QUERY RESULT: {patient}")
-        print(f"PATIENT QUERY RESULT: {patient}")
     except Exception:
-        logger.warning(f"Patient not found: {patient_id}")
+        logger.warning("Patient lookup failed during onboarding")
         return
 
     if not patient:
-        logger.warning(f"Patient not found or invalid data: {patient_id}")
+        logger.warning("Patient not found or invalid data during onboarding")
         return {"status": "not_found"}
     
     
@@ -55,7 +47,6 @@ def send_onboarding_email(patient_id: str):
     try:
         #  verify start
         logger.info("RENDER TEMPLATE START")
-        print("RENDER TEMPLATE START")
 
         html = render_template(
             "welcome_patient.html",
@@ -67,7 +58,6 @@ def send_onboarding_email(patient_id: str):
 
         # verify end
         logger.info("RENDER TEMPLATE SUCCESS")
-        print("RENDER TEMPLATE SUCCESS")
 
         try:
             email_service = EmailService(
@@ -76,12 +66,12 @@ def send_onboarding_email(patient_id: str):
             html=html
         )
         except (ValidationError, TypeError) as ve:
-            logger.warning(f"Invalid patient email for {patient_id}: {email}")
+            logger.warning("Invalid patient email in onboarding record")
             (
                 supabase_admin
                 .table("patients")
                 .update({
-                    "onboarding_last_error": str(ve),
+                    "onboarding_last_error": "invalid_email",
                     "onboarding_failure_reason": "invalid_email",
                     "onboarding_retry_count": int(patient.get("onboarding_retry_count") or 0) + 1,
                     "onboarding_status": "processing",
@@ -92,22 +82,10 @@ def send_onboarding_email(patient_id: str):
             )
             return {"status": "invalid_email"}
         
-        # log and print onboarding email
-        logger.info(
-            f"Attempting onboarding email to {email}"
-        )
-        print(f"Attempting onboarding email to {email}")
-
-        # send the prepared EmailService instance
+        # send the prepared EmailService instance without logging recipient or provider response
         response = send_email(email_service)
 
-        logger.info("SEND_EMAIL RETURN TYPE: %s", type(response))
-        logger.info("SEND_EMAIL RETURN VALUE: %r", response)
-
-        print("SEND_EMAIL RETURN TYPE:", type(response))
-        print("SEND_EMAIL RETURN VALUE:", repr(response))
-
-        # log and print response
+        # audit write carries attribution; no raw response or patient row is logged
         log_audit_event(
             actor_id=patient_id,
             actor_type="patient",
@@ -115,11 +93,6 @@ def send_onboarding_email(patient_id: str):
             resource_type="patient",
             resource_id=patient_id
         )
-
-        logger.info(
-            f"Resend response: {response}"
-        )
-        print(f"Resend response: {response}")
 
         if not response:
             raise EmailDeliveryError("Email send failed")
@@ -142,21 +115,14 @@ def send_onboarding_email(patient_id: str):
             .execute()
         )
 
-        logger.info(
-            "ONBOARDING CALL STACK:\n%s",
-            "".join(traceback.format_stack())
-        )
-
-    except Exception as e:
-        logger.exception(
-            f"Failed loading patient {patient_id}: {str(e)}"
-        )
+    except Exception:
+        logger.exception("Failed to send onboarding email")
 
         (
             supabase_admin
             .table("patients")
             .update({
-                "onboarding_last_error": str(e),
+                "onboarding_last_error": "email_delivery_failed",
                 "onboarding_failure_reason": "email_delivery_failed",
                 "onboarding_retry_count": int(patient.get("onboarding_retry_count") or 0) + 1,
                 "onboarding_status": "failed",
