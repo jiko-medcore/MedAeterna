@@ -341,6 +341,7 @@ def test_sensitive_routes_require_authentication(method, path, body):
 def test_sensitive_routes_reject_invalid_token(monkeypatch, path):
     class InvalidTokenError(Exception):
         code = "bad_jwt"
+        status_code = 401
 
     class InvalidAuth:
         def get_user(self, _token):
@@ -574,6 +575,11 @@ def test_forged_practitioner_id_denied_before_clinical_write(
 
 def test_omitted_practitioner_id_is_bound_to_actor(monkeypatch):
     responses = _auth_responses()
+    # Isolate actor-binding behavior from the separate SPEC-05 consent gate.
+    monkeypatch.setattr(
+        clinical, "evaluate_action",
+        lambda **kwargs: SimpleNamespace(allowed=True, missing_conditions=(), reason="test fixture"),
+    )
     monkeypatch.setattr(security, "supabase_admin", FakeAdmin(responses))
     captured = []
 
