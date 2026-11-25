@@ -4,7 +4,6 @@ from tests.factories.user import user_factory
 from app.modules.organizations import dependencies
 from app.modules.organizations.exceptions import (
     OrganizationAccessDeniedError,
-    OrganizationNotFoundError,
 )
 from tests.factories.organization import (
     organization_factory,
@@ -137,80 +136,49 @@ def test_require_organization_access_returns_organization(
 # ---------------------------------------------------------
 
 
-def test_require_organization_member_returns_organization(
+def test_require_organization_member_returns_membership_context(
     mocker,
 ):
-    organization = organization_factory()
-
-    get_organization = mocker.patch.object(
-        dependencies,
-        "get_organization",
-        return_value=organization,
-    )
-
-    current_user = user_factory(
-        organization_ids=[
-            str(ORGANIZATION_ID),
-        ]
-    )
+    get_organization = mocker.patch.object(dependencies, "get_organization")
+    current_user = user_factory(organization_ids=[str(ORGANIZATION_ID)])
 
     result = dependencies.require_organization_member(
         organization_id=ORGANIZATION_ID,
         current_user=current_user,
     )
 
-    assert result is organization
+    assert result == {
+        "organization_id": str(ORGANIZATION_ID),
+        "is_member": True,
+    }
+    get_organization.assert_not_called()
 
-    get_organization.assert_called_once_with(
+
+def test_require_organization_member_does_not_resolve_organization_existence(
+    mocker,
+):
+    get_organization = mocker.patch.object(dependencies, "get_organization")
+    current_user = user_factory(organization_ids=[str(ORGANIZATION_ID)])
+
+    result = dependencies.require_organization_member(
         organization_id=ORGANIZATION_ID,
+        current_user=current_user,
     )
 
+    assert result["is_member"] is True
+    get_organization.assert_not_called()
 
-def test_require_organization_member_raises_not_found(
+
+def test_require_organization_member_denies_before_any_privileged_lookup(
     mocker,
 ):
-    mocker.patch.object(
-        dependencies,
-        "get_organization",
-        return_value=None,
-    )
+    get_organization = mocker.patch.object(dependencies, "get_organization")
+    current_user = user_factory(organization_ids=[str(OTHER_ORGANIZATION_ID)])
 
-    current_user = user_factory(
-        organization_ids=[
-            str(ORGANIZATION_ID),
-        ]
-    )
-
-    with pytest.raises(
-        OrganizationNotFoundError
-    ):
+    with pytest.raises(OrganizationAccessDeniedError):
         dependencies.require_organization_member(
             organization_id=ORGANIZATION_ID,
             current_user=current_user,
         )
 
-
-def test_require_organization_member_raises_access_denied(
-    mocker,
-):
-    organization = organization_factory()
-
-    mocker.patch.object(
-        dependencies,
-        "get_organization",
-        return_value=organization,
-    )
-
-    current_user = user_factory(
-        organization_ids=[
-            str(OTHER_ORGANIZATION_ID),
-        ]
-    )
-
-    with pytest.raises(
-        OrganizationAccessDeniedError
-    ):
-        dependencies.require_organization_member(
-            organization_id=ORGANIZATION_ID,
-            current_user=current_user,
-        )
+    get_organization.assert_not_called()

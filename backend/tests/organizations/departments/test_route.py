@@ -1,3 +1,6 @@
+from main import app
+from app.modules.organizations.dependencies import require_organization_access
+
 import pytest
 
 from uuid import uuid4
@@ -653,3 +656,38 @@ def test_delete_department_has_children(
         response.status_code
         == status.HTTP_409_CONFLICT
     )
+
+def test_list_departments_denies_without_organization_configuration_authority(
+    authenticated_client,
+    mocker,
+):
+    from fastapi import HTTPException
+
+    def deny():
+        raise HTTPException(status_code=403, detail="Organization administrator required")
+
+    app.dependency_overrides[require_organization_access] = deny
+    list_service = mocker.patch.object(router, "list_departments_service")
+
+    response = authenticated_client.get(BASE_URL)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    list_service.assert_not_called()
+
+
+def test_get_department_denies_without_organization_configuration_authority(
+    authenticated_client,
+    mocker,
+):
+    from fastapi import HTTPException
+
+    def deny():
+        raise HTTPException(status_code=403, detail="Organization administrator required")
+
+    app.dependency_overrides[require_organization_access] = deny
+    get_service = mocker.patch.object(router, "get_department_service")
+
+    response = authenticated_client.get(f"{BASE_URL}/{uuid4()}")
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    get_service.assert_not_called()

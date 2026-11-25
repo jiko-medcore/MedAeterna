@@ -1,44 +1,18 @@
-from app.core.supabase_client import supabase
 from app.core.supabase_admin import supabase_admin
-from app.modules.organizations.exceptions import (
-    OrganizationNotFoundError,
-    UserOrganizationNotFoundError
-)
+from app.modules.organizations.exceptions import OrganizationNotFoundError
 
 
-# ------------------------------------
-# Get User Organization ID
-# ------------------------------------
-def get_user_organization_id(user_id: str) -> str:
-    response = (
-        supabase
-        .table("user_roles")
-        .select("organization_id")
-        .eq("user_id", user_id)
-        .maybe_single()
-        .execute()
-    )
+def get_organization(organization_id: str) -> dict:
+    """Retrieve an organization after the caller's scope has been authorized.
 
-    if not response or not response.data:
-        raise UserOrganizationNotFoundError(
-            f"User {user_id}  is not assigned to an organization."
-        )
-
-    return response.data["organization_id"]
-
-
-# ------------------------------------
-# Get Organization
-# ------------------------------------
-def get_organization(
-        organization_id: str
-    ):
-    
+    Callers handling authenticated organization routes must use an organization
+    dependency before invoking this privileged service-role lookup.
+    """
     response = (
         supabase_admin
         .table("organizations")
         .select("*")
-        .eq("id", organization_id)
+        .eq("id", str(organization_id))
         .maybe_single()
         .execute()
     )

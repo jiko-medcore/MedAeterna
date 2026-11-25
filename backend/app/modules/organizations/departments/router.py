@@ -7,9 +7,7 @@ from fastapi import (
     status,
 )
 
-from app.core.security import (
-    get_current_user,
-)
+from app.core.security import get_current_user
 
 from .schemas import (
     DepartmentCreate,
@@ -26,6 +24,7 @@ from .service import (
 )
 
 from app.modules.organizations.dependencies import (
+    require_organization_access,
     require_organization_admin,
 )
 
@@ -67,7 +66,7 @@ def create_department(
 )
 def list_departments(
     organization_id: UUID,
-    current_user=Depends(get_current_user),
+    organization=Depends(require_organization_access),
 ):
     return list_departments_service(
         organization_id=organization_id,
@@ -84,7 +83,7 @@ def list_departments(
 def get_department(
     organization_id: UUID,
     department_id: UUID,
-    current_user=Depends(get_current_user),
+    organization=Depends(require_organization_access),
 ):
     return get_department_service(
         organization_id=organization_id,

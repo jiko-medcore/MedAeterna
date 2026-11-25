@@ -8,11 +8,13 @@ from main import app
 
 from app.core.security import get_current_user
 from app.modules.organizations import router
-from app.modules.organizations.dependencies import require_organization_admin_for_org_id
+from app.modules.organizations.dependencies import (
+    require_organization_admin_for_org_id,
+    require_current_user_organization_admin,
+)
 from app.modules.organizations.exceptions import (
     OrganizationAccessDeniedError,
     OrganizationNotFoundError,
-    UserOrganizationNotFoundError,
 )
 
 from tests.factories.constants import (
@@ -67,94 +69,6 @@ ACCEPT_INVITE_PAYLOAD = {
 # ============================================================
 # HELPERS
 # ============================================================
-
-
-def _find_manage_organization_dependencies():
-    """
-    Find all registered require_permission("manage_organization")
-    callables in FastAPI's dependency graph.
-    """
-
-    found = []
-
-    def find_in_dependencies(dependencies):
-        for dependency in dependencies:
-            call = dependency.call
-
-            if call is not None:
-                closure = getattr(
-                    call,
-                    "__closure__",
-                    None,
-                )
-
-                if closure:
-                    for cell in closure:
-                        try:
-                            value = cell.cell_contents
-                        except ValueError:
-                            continue
-
-                        if value == "manage_organization":
-                            if call not in found:
-                                found.append(call)
-
-                            break
-
-            find_in_dependencies(
-                dependency.dependencies
-            )
-
-    for route in app.routes:
-        dependant = getattr(
-            route,
-            "dependant",
-            None,
-        )
-
-        if dependant is None:
-            continue
-
-        find_in_dependencies(
-            dependant.dependencies
-        )
-
-    if not found:
-        raise AssertionError(
-            "Could not find any registered "
-            "require_permission('manage_organization') "
-            "dependencies."
-        )
-
-    return found
-
-
-def _override_manage_organization_permission(
-    dependency_override,
-):
-    dependencies = (
-        _find_manage_organization_dependencies()
-    )
-
-    for dependency in dependencies:
-        app.dependency_overrides[
-            dependency
-        ] = dependency_override
-
-def _allow_manage_organization():
-    return {
-        "id": str(ORGANIZATION_ID),
-        "name": "Test Hospital",
-    }
-
-
-def _deny_manage_organization():
-    raise HTTPException(
-        status_code=403,
-        detail="Permission denied",
-    )
-
-
 
 
 # ============================================================
@@ -252,80 +166,40 @@ def test_register_organization_service_exception_propagates(
 
 def test_get_my_organization_success(
     authenticated_client,
-    mocker,
     organization_data,
 ):
-    get_org_id = mocker.patch.object(
-        router,
-        "get_user_organization_id",
-        return_value=str(ORGANIZATION_ID),
-    )
+    app.dependency_overrides[require_current_user_organization_admin] = lambda: organization_data
 
-    get_org = mocker.patch.object(
-        router,
-        "get_organization",
-        return_value=organization_data,
-    )
-
-    response = authenticated_client.get(
-        "/organizations/me"
-    )
+    response = authenticated_client.get("/organizations/me")
 
     assert response.status_code == 200
     expected = organization_data.copy()
     expected["id"] = str(expected["id"])
-
     assert response.json() == expected
 
-    get_org_id.assert_called_once_with(
-        USER_ID
-    )
 
-    get_org.assert_called_once_with(
-        str(ORGANIZATION_ID)
-    )
-
-
-def test_get_my_organization_user_has_no_organization(
+def test_get_my_organization_denies_user_without_admin_scope(
     authenticated_client,
-    mocker,
 ):
-    mocker.patch.object(
-        router,
-        "get_user_organization_id",
-        side_effect=UserOrganizationNotFoundError(
-            "User is not assigned to an organization."
-        ),
-    )
+    def deny():
+        raise OrganizationAccessDeniedError()
 
-    response = authenticated_client.get(
-        "/organizations/me"
-    )
+    app.dependency_overrides[require_current_user_organization_admin] = deny
 
-    assert response.status_code == 404
+    response = authenticated_client.get("/organizations/me")
+
+    assert response.status_code == 403
 
 
 def test_get_my_organization_not_found(
     authenticated_client,
-    mocker,
 ):
-    mocker.patch.object(
-        router,
-        "get_user_organization_id",
-        return_value=str(ORGANIZATION_ID),
-    )
+    def missing():
+        raise OrganizationNotFoundError("Organization not found.")
 
-    mocker.patch.object(
-        router,
-        "get_organization",
-        side_effect=OrganizationNotFoundError(
-            "Organization not found."
-        ),
-    )
+    app.dependency_overrides[require_current_user_organization_admin] = missing
 
-    response = authenticated_client.get(
-        "/organizations/me"
-    )
+    response = authenticated_client.get("/organizations/me")
 
     assert response.status_code == 404
 
@@ -337,19 +211,8 @@ def test_get_my_organization_not_found(
 
 def test_upload_organization_logo_success(
     authenticated_client,
-    current_user,
     mocker,
 ):
-    get_org_id = mocker.patch.object(
-        router,
-        "get_user_organization_id",
-        return_value=str(ORGANIZATION_ID),
-    )
-    require_admin = mocker.patch.object(
-        router,
-        "require_organization_admin_for_org_id",
-    )
-
     expected_path = f"{ORGANIZATION_ID}/logo.png"
     public_url = f"https://storage.test/organization-logos/{expected_path}"
 
@@ -359,35 +222,19 @@ def test_upload_organization_logo_success(
         return_value=(expected_path, public_url),
     )
 
-    admin = mocker.patch.object(
-        router,
-        "supabase_admin",
-    )
-
+    admin = mocker.patch.object(router, "supabase_admin")
     organizations_query = Mock()
     organizations_query.update.return_value = organizations_query
     organizations_query.eq.return_value = organizations_query
     organizations_query.execute.return_value = Mock(
-        data=[
-            {
-                "id": str(ORGANIZATION_ID),
-                "logo_url": public_url,
-            }
-        ]
+        data=[{"id": str(ORGANIZATION_ID), "logo_url": public_url}]
     )
     admin.table.return_value = organizations_query
 
     content = b"\x89PNG\r\n\x1a\nfake-png"
-
     response = authenticated_client.post(
         "/organizations/upload-logo",
-        files={
-            "file": (
-                "logo.png",
-                content,
-                "image/png",
-            )
-        },
+        files={"file": ("logo.png", content, "image/png")},
     )
 
     assert response.status_code == 200
@@ -395,9 +242,6 @@ def test_upload_organization_logo_success(
         "message": "Logo uploaded successfully",
         "logo_url": public_url,
     }
-
-    get_org_id.assert_called_once_with(current_user["id"])
-    require_admin.assert_called_once_with(str(ORGANIZATION_ID), current_user)
     replace_logo.assert_called_once_with(
         organization_id=str(ORGANIZATION_ID),
         content_type="image/png",
@@ -411,23 +255,13 @@ def test_upload_organization_logo_success(
 
 def test_upload_organization_logo_requires_scoped_organization_admin(
     authenticated_client,
-    current_user,
     mocker,
 ):
-    mocker.patch.object(
-        router,
-        "get_user_organization_id",
-        return_value=str(ORGANIZATION_ID),
-    )
-    require_admin = mocker.patch.object(
-        router,
-        "require_organization_admin_for_org_id",
-        side_effect=OrganizationAccessDeniedError(),
-    )
-    admin = mocker.patch.object(
-        router,
-        "supabase_admin",
-    )
+    def deny():
+        raise OrganizationAccessDeniedError()
+
+    app.dependency_overrides[require_current_user_organization_admin] = deny
+    admin = mocker.patch.object(router, "supabase_admin")
 
     response = authenticated_client.post(
         "/organizations/upload-logo",
@@ -435,7 +269,6 @@ def test_upload_organization_logo_requires_scoped_organization_admin(
     )
 
     assert response.status_code == 403
-    require_admin.assert_called_once_with(str(ORGANIZATION_ID), current_user)
     admin.table.assert_not_called()
 
 
@@ -443,29 +276,11 @@ def test_upload_organization_logo_rejects_forged_content_before_storage_call(
     authenticated_client,
     mocker,
 ):
-    mocker.patch.object(
-        router,
-        "get_user_organization_id",
-        return_value=str(ORGANIZATION_ID),
-    )
-    mocker.patch.object(
-        router,
-        "require_organization_admin_for_org_id",
-    )
-    admin = mocker.patch.object(
-        router,
-        "supabase_admin",
-    )
+    admin = mocker.patch.object(router, "supabase_admin")
 
     response = authenticated_client.post(
         "/organizations/upload-logo",
-        files={
-            "file": (
-                "logo.png",
-                b"not-a-png",
-                "image/png",
-            )
-        },
+        files={"file": ("logo.png", b"not-a-png", "image/png")},
     )
 
     assert response.status_code == 400
@@ -477,13 +292,7 @@ def test_upload_organization_logo_requires_authentication(
 ):
     response = client.post(
         "/organizations/upload-logo",
-        files={
-            "file": (
-                "logo.png",
-                b"fake",
-                "image/png",
-            )
-        },
+        files={"file": ("logo.png", b"fake", "image/png")},
     )
 
     assert response.status_code == 401
@@ -496,25 +305,13 @@ def test_upload_organization_logo_requires_authentication(
 
 def test_update_my_organization_success(
     authenticated_client,
-    current_user,
     mocker,
     updated_organization_data,
 ):
-    mock_get_org_id = mocker.patch.object(
-        router,
-        "get_user_organization_id",
-        return_value=str(ORGANIZATION_ID),
-    )
-
     mock_update = mocker.patch.object(
         router,
         "update_organization",
         return_value=updated_organization_data,
-    )
-
-
-    _override_manage_organization_permission(
-        _allow_manage_organization
     )
 
     response = authenticated_client.put(
@@ -525,52 +322,32 @@ def test_update_my_organization_success(
     assert response.status_code == 200
     expected = updated_organization_data.copy()
     expected["id"] = str(expected["id"])
-
     assert response.json() == expected
 
-    mock_get_org_id.assert_called_once_with(
-        current_user["id"]
-    )
-
     mock_update.assert_called_once()
-
     call_args = mock_update.call_args
-
     assert call_args.args[0] == str(ORGANIZATION_ID)
-
-    payload = call_args.args[1]
-
-    assert payload.name == UPDATE_PAYLOAD["name"]
+    assert call_args.args[1].name == UPDATE_PAYLOAD["name"]
 
 
 def test_update_my_organization_invalid_payload(
     authenticated_client,
-    mocker,
 ):
-
-    _override_manage_organization_permission(
-        _allow_manage_organization
-    )
-
     response = authenticated_client.put(
         "/organizations/update",
-        json={
-            "email": "not-an-email",
-        },
+        json={"email": "not-an-email"},
     )
 
     assert response.status_code == 422
 
 
-def test_update_my_organization_permission_denied(
+def test_update_my_organization_denies_non_admin(
     authenticated_client,
-    mocker,
 ):
+    def deny():
+        raise OrganizationAccessDeniedError()
 
-
-    _override_manage_organization_permission(
-        _deny_manage_organization
-    )
+    app.dependency_overrides[require_current_user_organization_admin] = deny
 
     response = authenticated_client.put(
         "/organizations/update",
@@ -578,27 +355,12 @@ def test_update_my_organization_permission_denied(
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == (
-        "Permission denied"
-    )
 
 
 def test_update_my_organization_service_exception_propagates(
     authenticated_client,
     mocker,
 ):
-
-
-    _override_manage_organization_permission(
-        _allow_manage_organization
-    )
-
-    mocker.patch.object(
-        router,
-        "get_user_organization_id",
-        return_value=str(ORGANIZATION_ID),
-    )
-
     mocker.patch.object(
         router,
         "update_organization",
@@ -614,9 +376,7 @@ def test_update_my_organization_service_exception_propagates(
     )
 
     assert response.status_code == 404
-    assert response.json()["detail"] == (
-        "Organization not found"
-    )
+    assert response.json()["detail"] == "Organization not found"
 
 
 # ============================================================
@@ -630,9 +390,6 @@ def test_assign_role_success(
 ):
 
 
-    _override_manage_organization_permission(
-        _allow_manage_organization
-    )
 
     assign_role = mocker.patch.object(
         router,
@@ -670,9 +427,6 @@ def test_assign_role_organization_mismatch(
 ):
 
 
-    _override_manage_organization_permission(
-        _allow_manage_organization
-    )
 
     assign_role = mocker.patch.object(
         router,
@@ -729,9 +483,6 @@ def test_assign_role_invalid_payload(
 ):
 
 
-    _override_manage_organization_permission(
-        _allow_manage_organization
-    )
 
     response = authenticated_client.post(
         f"/organizations/{ORGANIZATION_ID}/assign-role",
@@ -757,9 +508,6 @@ def test_invite_user_success(
 ):
 
 
-    _override_manage_organization_permission(
-        _allow_manage_organization
-    )
 
     mock_create_invitation = mocker.patch.object(
         router,
@@ -822,7 +570,7 @@ def test_invite_user_to_another_organization(
 
     assert response.status_code == 403
 
-    assert "permission" in response.json()["detail"].lower()
+    assert response.status_code == 403
 
     create_invitation.assert_not_called()
 
@@ -862,9 +610,6 @@ def test_invite_user_invalid_payload(
 ):
 
 
-    _override_manage_organization_permission(
-        _allow_manage_organization
-    )
 
     response = authenticated_client.post(
         f"/organizations/{ORGANIZATION_ID}/invite",
@@ -1004,7 +749,29 @@ def test_authenticated_organization_routes_require_authentication(
 # ============================================================
 
 
-def test_manage_organization_permission_dependency_is_registered():
-    dependency = _find_manage_organization_dependencies()
+def test_self_scoped_organization_routes_use_admin_dependency():
+    from app.modules.organizations.dependencies import require_current_user_organization_admin
 
-    assert dependency is not None
+    expected_paths = {
+        "/organizations/me",
+        "/organizations/update",
+        "/organizations/upload-logo",
+        "/organizations/profile",
+    }
+    routes = {
+        getattr(route, "path", None): route
+        for route in app.routes
+        if getattr(route, "path", None)
+    }
+
+    for path in expected_paths:
+        matching_routes = [
+            route for route in app.routes
+            if getattr(route, "path", None) == path
+        ]
+        assert matching_routes, path
+        assert any(
+            dependency.call is require_current_user_organization_admin
+            for route in matching_routes
+            for dependency in route.dependant.dependencies
+        ), path

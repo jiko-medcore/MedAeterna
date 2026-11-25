@@ -93,41 +93,56 @@ def test_system_admin_does_not_imply_org_admin():
     )
 
 
-def test_organization_admin_dependency_allows_own_organization():
+def test_organization_admin_dependency_allows_own_organization(mocker):
     org_id = str(uuid4())
     organization = {"id": org_id}
     user = {
         "roles": [assignment("org_admin", "organization", org_id, org_id)],
         "organization_ids": [org_id],
     }
+    lookup = mocker.patch(
+        "app.modules.organizations.dependencies.get_organization",
+        return_value=organization,
+    )
 
     assert require_organization_admin(
-        organization=organization,
+        organization_id=org_id,
         current_user=user,
     ) is organization
+    lookup.assert_called_once_with(organization_id=org_id)
 
 
-def test_organization_admin_dependency_denies_another_organization():
+def test_organization_admin_dependency_denies_another_organization(mocker):
     assigned_org_id = str(uuid4())
     target_org_id = str(uuid4())
     user = {
         "roles": [
             assignment("org_admin", "organization", assigned_org_id, assigned_org_id)
-        ]
+        ],
+        "organization_ids": [assigned_org_id],
     }
+    lookup = mocker.patch("app.modules.organizations.dependencies.get_organization")
 
     with pytest.raises(OrganizationAccessDeniedError):
         require_organization_admin(
-            organization={"id": target_org_id},
+            organization_id=target_org_id,
             current_user=user,
         )
 
+    lookup.assert_not_called()
 
-def test_system_admin_cannot_pass_organization_admin_dependency():
-    user = {"roles": [assignment("super_admin", "system")]}
+
+def test_system_admin_cannot_pass_organization_admin_dependency(mocker):
+    user = {
+        "roles": [assignment("super_admin", "system")],
+        "organization_ids": [],
+    }
+    lookup = mocker.patch("app.modules.organizations.dependencies.get_organization")
 
     with pytest.raises(OrganizationAccessDeniedError):
         require_organization_admin(
-            organization={"id": str(uuid4())},
+            organization_id=str(uuid4()),
             current_user=user,
         )
+
+    lookup.assert_not_called()
