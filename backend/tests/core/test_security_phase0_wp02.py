@@ -114,7 +114,10 @@ def _care_team_row(patient="patient-1", practitioner="prac-1", org="org-1"):
                 ("eq", "practitioner_id", practitioner),
                 ("eq", "status", "active"),
             ),
-        ): [{"id": "ct-1"}]
+        ): [{
+            "id": "ct-1", "patient_id": patient, "practitioner_id": practitioner,
+            "organization_id": org, "status": "active", "start_date": None, "end_date": None,
+        }]
     }
 
 
