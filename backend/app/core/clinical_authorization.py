@@ -462,14 +462,23 @@ def ensure_authorized_context(
         _deny("Action not authorized")
     # The service boundary requires an explicit actor binding from authorization.
     # The ordinary authenticated-user id is not an authorization-context substitute.
-    if not context.get("authorized_user_id"):
+    if not str(context.get("authorized_user_id") or "").strip():
         _deny("Authorized actor context required", status.HTTP_401_UNAUTHORIZED)
-    if patient_id is not None and str(context.get("authorized_patient_id") or "") != str(patient_id):
-        _deny("Patient scope mismatch")
-    if organization_id is not None and str(context.get("authorized_organization_id") or "") != str(organization_id):
-        _deny("Organization scope mismatch")
-    if resource_id is not None and str(context.get("authorized_resource_id") or "") != str(resource_id):
-        _deny("Resource scope mismatch")
+    if patient_id is not None:
+        expected_patient = str(patient_id).strip()
+        actual_patient = str(context.get("authorized_patient_id") or "").strip()
+        if not expected_patient or actual_patient != expected_patient:
+            _deny("Patient scope mismatch")
+    if organization_id is not None:
+        expected_organization = str(organization_id).strip()
+        actual_organization = str(context.get("authorized_organization_id") or "").strip()
+        if not expected_organization or actual_organization != expected_organization:
+            _deny("Organization scope mismatch")
+    if resource_id is not None:
+        expected_resource = str(resource_id).strip()
+        actual_resource = str(context.get("authorized_resource_id") or "").strip()
+        if not expected_resource or actual_resource != expected_resource:
+            _deny("Resource scope mismatch")
 
 
 def require_patient_clinical(
