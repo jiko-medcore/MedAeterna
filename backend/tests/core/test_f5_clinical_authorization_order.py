@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
 
+from app.core.clinical_authorization import CLINICAL_RECORD
 from app.modules.laboratory import service as lab_service
 from app.modules.records import service as record_service
 
 PATIENT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 LAB_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 RECORD_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
-USER = {"id": "user-1", "roles": []}
 
 
 class FakeResult:
@@ -36,6 +38,11 @@ class FakeQuery:
         self.payload = payload
         return self
 
+    def insert(self, payload):
+        self.operation = "insert"
+        self.payload = payload
+        return self
+
     def eq(self, column, value):
         self.filters[column] = value
         return self
@@ -44,13 +51,14 @@ class FakeQuery:
         return self
 
     def execute(self):
-        self.client.calls.append({
+        call = {
             "operation": self.operation,
             "table": self.table,
             "columns": self.columns,
             "filters": dict(self.filters),
             "payload": self.payload,
-        })
+        }
+        self.client.calls.append(call)
         return FakeResult(self.client.responder(self))
 
 
@@ -63,9 +71,18 @@ class FakeClient:
         return FakeQuery(self, name)
 
 
+def authorized_context(*, action="read", patient_id=PATIENT_ID, resource_id=LAB_ID):
+    return {
+        "authorized_user_id": "patient-user-1",
+        "authorized_resource": CLINICAL_RECORD,
+        "authorized_action": action,
+        "authorized_patient_id": patient_id,
+        "authorized_organization_id": "org-1",
+        "authorized_resource_id": resource_id,
+    }
+
+
 def lab_responder(query: FakeQuery):
-    if query.columns == lab_service.LAB_SCOPE_SELECT:
-        return [{"id": LAB_ID, "patient_id": PATIENT_ID}]
     return [{
         "id": LAB_ID,
         "patient_id": PATIENT_ID,
@@ -80,120 +97,183 @@ def lab_responder(query: FakeQuery):
 
 def record_responder(query: FakeQuery):
     if query.operation == "update":
-        return [{"id": RECORD_ID, "clinical_data": query.payload["clinical_data"]}]
-    if query.columns == "id, patient_id":
-        return [{"id": RECORD_ID, "patient_id": PATIENT_ID}]
+        return [{
+            "id": RECORD_ID,
+            "patient_id": PATIENT_ID,
+            "clinical_data": query.payload["clinical_data"],
+        }]
+    if query.operation == "insert":
+        return [{"id": RECORD_ID, **query.payload}]
     return [{
         "id": RECORD_ID,
         "patient_id": PATIENT_ID,
-        "clinical_data": {"coding": []},
+        "clinical_data": {"clinicalStatus": {"coding": []}},
         "summary": "synthetic",
     }]
 
 
-def test_lab_detail_authorizes_before_clinical_query_and_omits_raw(monkeypatch):
-    events: list = []
-
-    def responder(query):
-        kind = "query:scope" if query.columns == lab_service.LAB_SCOPE_SELECT else "query:detail"
-        events.append(kind)
-        return lab_responder(query)
-
-    fake = FakeClient(responder)
+def test_lab_detail_requires_explicit_context_before_detail_query(monkeypatch):
+    fake = FakeClient(lab_responder)
     monkeypatch.setattr(lab_service, "supabase_admin", fake)
 
-    def fake_access(patient_id, user):
-        events.append("auth")
-        assert patient_id == PATIENT_ID
-        assert user == USER
-        return {}
+    with pytest.raises(HTTPException) as exc:
+        lab_service.build_lab_detail(LAB_ID, authorized_context=None)
 
-    monkeypatch.setattr(lab_service, "require_patient_access", fake_access)
+    assert exc.value.status_code == 403
+    assert fake.calls == []
 
-    detail = lab_service.build_lab_detail(LAB_ID, USER)
 
-    queries = [call for call in fake.calls if call["operation"] == "select"]
-    assert len(queries) == 2
-    assert queries[0]["columns"] == lab_service.LAB_SCOPE_SELECT
-    assert queries[1]["columns"] == lab_service.LAB_DETAIL_SELECT
-    assert events == ["query:scope", "auth", "query:detail"]
+def test_lab_detail_filters_by_authorized_resource_and_patient(monkeypatch):
+    fake = FakeClient(lab_responder)
+    monkeypatch.setattr(lab_service, "supabase_admin", fake)
+
+    detail = lab_service.build_lab_detail(
+        LAB_ID,
+        authorized_context=authorized_context(),
+    )
+
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["table"] == "lab_results"
+    assert fake.calls[0]["columns"] == lab_service.LAB_DETAIL_SELECT
+    assert fake.calls[0]["filters"] == {"id": LAB_ID, "patient_id": PATIENT_ID}
     assert "raw" not in detail
     assert "patient_email" not in detail
     assert set(detail) == {"id", "patient_id", "status", "result", "metadata"}
 
 
-def test_lab_denial_prevents_detailed_clinical_query(monkeypatch):
+def test_lab_detail_rejects_resource_id_mismatch_before_query(monkeypatch):
     fake = FakeClient(lab_responder)
     monkeypatch.setattr(lab_service, "supabase_admin", fake)
 
-    def deny_access(patient_id, user):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    monkeypatch.setattr(lab_service, "require_patient_access", deny_access)
-
     with pytest.raises(HTTPException) as exc:
-        lab_service.build_lab_detail(LAB_ID, USER)
+        lab_service.build_lab_detail(
+            LAB_ID,
+            authorized_context=authorized_context(resource_id="different-lab"),
+        )
 
     assert exc.value.status_code == 403
-    assert len(fake.calls) == 1
-    assert fake.calls[0]["columns"] == lab_service.LAB_SCOPE_SELECT
+    assert fake.calls == []
 
 
-def test_record_resolution_reauthorizes_before_clinical_fetch(monkeypatch):
-    events: list = []
-
-    def responder(query):
-        events.append(f"query:{query.operation}")
-        return record_responder(query)
-
-    fake = FakeClient(responder)
-    monkeypatch.setattr(record_service, "supabase", fake)
-
-    def fake_access(patient_id, user):
-        events.append("auth")
-        assert patient_id == PATIENT_ID
-        return {}
-
-    monkeypatch.setattr(record_service, "require_patient_access", fake_access)
-
-    record_service.resolve_condition_record(RECORD_ID, USER, patient_id=PATIENT_ID)
-
-    select_calls = [call for call in fake.calls if call["operation"] == "select"]
-    update_calls = [call for call in fake.calls if call["operation"] == "update"]
-    assert events == ["auth", "query:select", "query:update"]
-    assert len(select_calls) == 1
-    assert "clinical_data" in select_calls[0]["columns"]
-    assert select_calls[0]["filters"] == {
-        "id": RECORD_ID,
-        "patient_id": PATIENT_ID,
-        "record_type": "condition",
-    }
-    assert len(update_calls) == 1
-    assert update_calls[0]["filters"] == {
-        "id": RECORD_ID,
-        "patient_id": PATIENT_ID,
-        "record_type": "condition",
-    }
-
-
-def test_record_resolution_without_supplied_patient_uses_minimal_scope_read(monkeypatch):
+def test_condition_resolution_requires_authorized_stored_resource_context(monkeypatch):
     fake = FakeClient(record_responder)
-    monkeypatch.setattr(record_service, "supabase", fake)
-    monkeypatch.setattr(record_service, "require_patient_access", lambda *_: {})
+    monkeypatch.setattr(record_service, "supabase_admin", fake)
 
-    record_service.resolve_condition_record(RECORD_ID, USER)
+    context = authorized_context(
+        action="update",
+        resource_id=RECORD_ID,
+    )
+    context["resource_row"] = {
+        "id": RECORD_ID,
+        "patient_id": PATIENT_ID,
+        "record_type": "condition",
+    }
 
-    assert fake.calls[0]["columns"] == "id, patient_id"
-    assert "clinical_data" not in fake.calls[0]["columns"]
+    result = record_service.resolve_condition_record(
+        RECORD_ID,
+        authorized_context=context,
+    )
+
+    assert result["id"] == RECORD_ID
+    assert [call["operation"] for call in fake.calls] == ["select", "update"]
+    assert fake.calls[0]["filters"] == {
+        "id": RECORD_ID,
+        "patient_id": PATIENT_ID,
+        "record_type": "condition",
+    }
+    assert fake.calls[1]["filters"] == {
+        "id": RECORD_ID,
+        "patient_id": PATIENT_ID,
+        "record_type": "condition",
+    }
+    assert fake.calls[1]["payload"]["updated_by"] == "patient-user-1"
 
 
-def test_medical_history_projection_does_not_overfetch_rows(monkeypatch):
+def test_condition_resolution_denies_missing_context_before_query(monkeypatch):
+    fake = FakeClient(record_responder)
+    monkeypatch.setattr(record_service, "supabase_admin", fake)
+
+    with pytest.raises(HTTPException) as exc:
+        record_service.resolve_condition_record(
+            RECORD_ID,
+            authorized_context=None,
+        )
+
+    assert exc.value.status_code == 403
+    assert fake.calls == []
+
+
+def test_condition_resolution_rejects_mismatched_stored_resource_before_query(monkeypatch):
+    fake = FakeClient(record_responder)
+    monkeypatch.setattr(record_service, "supabase_admin", fake)
+    context = authorized_context(action="update", resource_id=RECORD_ID)
+    context["resource_row"] = {
+        "id": RECORD_ID,
+        "patient_id": "other-patient",
+        "record_type": "condition",
+    }
+
+    with pytest.raises(HTTPException) as exc:
+        record_service.resolve_condition_record(
+            RECORD_ID,
+            authorized_context=context,
+        )
+
+    assert exc.value.status_code == 403
+    assert fake.calls == []
+
+
+def test_create_legacy_record_requires_context_before_insert(monkeypatch):
+    fake = FakeClient(record_responder)
+    monkeypatch.setattr(record_service, "supabase_admin", fake)
+    payload = SimpleNamespace(
+        patient_id=PATIENT_ID,
+        record_type="observation",
+        clinical_data={"resourceType": "Observation"},
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        record_service.create_record(payload, authorized_context=None)
+
+    assert exc.value.status_code == 403
+    assert fake.calls == []
+
+
+def test_create_legacy_record_binds_clinician_to_authorized_actor(monkeypatch):
+    fake = FakeClient(record_responder)
+    monkeypatch.setattr(record_service, "supabase_admin", fake)
+    payload = SimpleNamespace(
+        patient_id=PATIENT_ID,
+        record_type="observation",
+        clinical_data={"resourceType": "Observation"},
+    )
+
+    record_service.create_record(
+        payload,
+        authorized_context=authorized_context(action="create"),
+    )
+
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["operation"] == "insert"
+    assert fake.calls[0]["payload"]["clinician_id"] == "patient-user-1"
+    assert fake.calls[0]["payload"]["patient_id"] == PATIENT_ID
+
+
+def test_medical_history_projection_requires_context_and_does_not_overfetch(monkeypatch):
     fake = FakeClient(lambda query: [])
-    monkeypatch.setattr(record_service, "supabase", fake)
+    monkeypatch.setattr(record_service, "supabase_admin", fake)
 
-    record_service.fetch_medical_records(PATIENT_ID)
+    with pytest.raises(HTTPException):
+        record_service.fetch_medical_records(PATIENT_ID, authorized_context=None)
+    assert fake.calls == []
+
+    record_service.fetch_medical_records(
+        PATIENT_ID,
+        authorized_context=authorized_context(),
+    )
 
     assert len(fake.calls) == 1
     columns = fake.calls[0]["columns"]
     assert "*" not in columns
     assert "clinical_data" not in columns
+    assert fake.calls[0]["filters"] == {"patient_id": PATIENT_ID}
