@@ -15,9 +15,12 @@ from app.modules.terminology.constants import CODE_SYSTEMS
 router = APIRouter(prefix="/records", tags=["Medical Records"])
 
 
-def _authorize_record_write(current_user: dict, patient_id: str, permission_name: str, resource_family: str) -> dict:
+def _authorize_record_write(
+    current_user: dict, patient_id: str, permission_name: str,
+    resource_family: str, action: str = "create",
+) -> dict:
     authz = authorize_patient_access(
-        current_user, str(patient_id), resource_family=resource_family, action="create"
+        current_user, str(patient_id), resource_family=resource_family, action=action
     )
     org_id = authz.get("authorized_organization_id")
     if not org_id:
@@ -94,7 +97,7 @@ def resolve_condition(
     if not rows:
         raise HTTPException(status_code=404, detail="Condition not found")
     patient_id = str(rows[0]["patient_id"])
-    current_user = _authorize_record_write(current_user, patient_id, "resolve_condition", "condition")
+    current_user = _authorize_record_write(current_user, patient_id, "resolve_condition", "condition", action="update")
     return resolve_condition_record(
         record_id,
         current_user,
