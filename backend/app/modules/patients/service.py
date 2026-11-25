@@ -1,6 +1,6 @@
 from fastapi import HTTPException
 
-from app.core.clinical_authorization import PATIENT_LIST, ensure_authorized_context
+from app.core.clinical_authorization import CLINICAL_RECORD, PATIENT_LIST, ensure_authorized_context
 from app.core.patient_avatar_access import (
     is_patient_avatar_object_path,
     with_private_avatar_url,
@@ -46,7 +46,13 @@ PATIENT_LIST_SELECT = (
 
 
 # ----- Get Patient Summary -----
-def get_patient_summary(patient_id: str) -> Dict[str, Any]:
+def get_patient_summary(patient_id: str, *, authorized_context: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
     """
     Generate a summary of the patient's health data including 
     vitals, conditions, and medications.  
@@ -263,7 +269,13 @@ def get_or_create_patient(
 
 
 # ----- Get Patient with Records -----
-def get_patient_with_records(patient_id: str):
+def get_patient_with_records(patient_id: str, *, authorized_context: Dict[str, Any]):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
     patient = (
         supabase
         .table("patients")
@@ -286,7 +298,13 @@ def get_patient_with_records(patient_id: str):
 
 
 # ----- Transform Record to Timeline Event -----
-def build_patient_timeline(patient_id: UUID):
+def build_patient_timeline(patient_id: UUID, *, authorized_context: Dict[str, Any]):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
     """
     Build a chronological timeline of a patient's medical events.
     
