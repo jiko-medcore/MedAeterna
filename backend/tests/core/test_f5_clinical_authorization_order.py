@@ -381,3 +381,37 @@ def test_patient_self_can_read_own_lab_result_with_verified_identity(monkeypatch
     assert context["authorized_patient_id"] == PATIENT_ID
     assert context["authorized_resource_id"] == LAB_ID
     assert context["authorized_action"] == "read"
+
+
+
+@pytest.mark.parametrize(
+    "service_call",
+    [
+        lambda: lab_service.build_lab_detail(
+            LAB_ID,
+            authorized_context=authorized_context(patient_id=""),
+        ),
+        lambda: record_service.resolve_condition_record(
+            RECORD_ID,
+            authorized_context={
+                **authorized_context(action="update", patient_id="", resource_id=RECORD_ID),
+                "resource_row": {
+                    "id": RECORD_ID,
+                    "patient_id": "",
+                    "record_type": "condition",
+                },
+            },
+        ),
+    ],
+)
+def test_clinical_services_reject_empty_patient_scope_before_query(monkeypatch, service_call):
+    lab_fake = FakeClient(lab_responder)
+    record_fake = FakeClient(record_responder)
+    monkeypatch.setattr(lab_service, "supabase_admin", lab_fake)
+    monkeypatch.setattr(record_service, "supabase_admin", record_fake)
+
+    with pytest.raises(HTTPException):
+        service_call()
+
+    assert lab_fake.calls == []
+    assert record_fake.calls == []
