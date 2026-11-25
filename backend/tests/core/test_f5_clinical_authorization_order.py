@@ -90,7 +90,7 @@ def lab_responder(query: FakeQuery):
     return [{
         "id": LAB_ID,
         "patient_id": PATIENT_ID,
-        "status": "final",
+        "status": "completed",
         "result_data": "negative",
         "performed_at": "2026-11-23",
         "created_at": "2026-11-22",
