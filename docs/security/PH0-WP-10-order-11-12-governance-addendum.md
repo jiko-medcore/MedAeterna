@@ -83,6 +83,20 @@ PR #43 — “Private patient avatars with authorized signed URLs and stable obj
 
 The PR's own record reports 52 focused tests passed and 1,468 passed / 1 skipped / 18 warnings for the full backend suite, plus compileall and `git diff --check`. These are local/CI results only. PR #43 explicitly did not perform a hosted migration, Storage config push, production deployment, or production verification.
 
+
+
+### 3.3.1 PR #43 review independence correction
+
+A follow-up inspection of PR #43 found one submitted review:
+
+- Review ID: `PRR_kwDOQ1VHdc8AAAABaLsdng`
+- Reviewer: `SmogJ`
+- Submitted: `2026-11-25T04:56:06Z`
+- Review state: `APPROVED`
+- PR #43 merge time: `2026-11-25T04:57:41Z`
+
+The PR author is `jiko-medcore`. The repository owner has clarified that `SmogJ` and `jiko-medcore` are the same person. This was technically submitted before merge, but it was **not an independent human review**. Record it as a same-owner pre-merge self-review across two GitHub identities, not as independent approval. The same-person governance limitation therefore also applies to PR #43.
+
 ### 3.4 Acceptance effect
 
 This update improves the governance evidence but does not change the formal acceptance decision:
