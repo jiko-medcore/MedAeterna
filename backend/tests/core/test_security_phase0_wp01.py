@@ -268,7 +268,6 @@ def test_require_patient_access_manual_compatibility_builds_context(monkeypatch)
             {"id": "role-1", "name": "practitioner", "role_type": "organization", "organization_id": "org-1", "is_active": True}
         ],
         ("patients", (("eq", "id", "patient-1"),)): [{"id": "patient-1", "organization_id": "org-1"}],
-        ("practitioners", (("eq", "id", "user-prac-1"),)): [],
         ("practitioners", (("eq", "profile_id", "user-prac-1"),)): [{"id": "prac-1", "profile_id": "user-prac-1"}],
         ("patient_care_team", (("eq", "organization_id", "org-1"), ("eq", "patient_id", "patient-1"), ("eq", "practitioner_id", "prac-1"), ("eq", "status", "active"))): [{"id": "ct-1"}],
     }
