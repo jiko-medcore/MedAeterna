@@ -84,16 +84,35 @@ def practitioner_actor_id(current_user: dict[str, Any]) -> str:
     return practitioner_id
 
 
-def practitioner_organization_id(current_user: dict[str, Any]) -> str:
-    """Resolve one unambiguous practitioner organization or fail closed."""
+def practitioner_organization_ids(current_user: dict[str, Any]) -> tuple[str, ...]:
+    """Return organization scopes from the authenticated practitioner role context."""
     org_ids = {
         str(role["organization_id"])
         for role in (current_user.get("roles") or [])
         if role.get("category") == PRACTITIONER and role.get("organization_id")
     }
+    return tuple(sorted(org_ids))
+
+
+def resolve_practitioner_organization_id(
+    current_user: dict[str, Any],
+    requested_organization_id: str | None = None,
+) -> str:
+    """Resolve one practitioner organization, allowing only an in-scope selection."""
+    org_ids = practitioner_organization_ids(current_user)
+    if requested_organization_id is not None:
+        requested = str(requested_organization_id)
+        if requested not in org_ids:
+            _deny("Organization is outside the practitioner active role scope")
+        return requested
     if len(org_ids) != 1:
         _deny("An unambiguous practitioner organization is required")
-    return next(iter(org_ids))
+    return org_ids[0]
+
+
+def practitioner_organization_id(current_user: dict[str, Any]) -> str:
+    """Resolve one unambiguous practitioner organization or fail closed."""
+    return resolve_practitioner_organization_id(current_user)
 
 
 def authorize_patient_list_access(current_user: dict[str, Any]) -> dict[str, Any]:
@@ -417,14 +436,15 @@ def ensure_authorized_context(
     resource_id: str | None = None,
 ) -> None:
     """Fail a direct service call unless it carries a matching route decision."""
-    if not context:
+    if not isinstance(context, dict) or not context:
         _deny("Authorized context required")
     if context.get("authorized_resource") != resource or context.get("authorized_action") != action:
         _deny("Action not authorized")
-    user_id = str(context.get("authorized_user_id") or context.get("id") or "")
-    if not user_id:
-        _deny("Authentication required", status.HTTP_401_UNAUTHORIZED)
-    if patient_id is not None and str(context.get("authorized_patient_id")) != str(patient_id):
+    # The service boundary requires an explicit actor binding from authorization.
+    # The ordinary authenticated-user id is not an authorization-context substitute.
+    if not context.get("authorized_user_id"):
+        _deny("Authorized actor context required", status.HTTP_401_UNAUTHORIZED)
+    if patient_id is not None and str(context.get("authorized_patient_id") or "") != str(patient_id):
         _deny("Patient scope mismatch")
     if organization_id is not None and str(context.get("authorized_organization_id") or "") != str(organization_id):
         _deny("Organization scope mismatch")
