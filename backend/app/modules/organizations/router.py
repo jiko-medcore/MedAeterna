@@ -20,16 +20,12 @@ from app.modules.organizations.service import (
     create_invitation,
     accept_invitation
 )
-from app.core.security import (
-    get_current_user,
-    require_permission
-)
+from app.core.security import get_current_user
 from app.modules.auth.role_assignment_schemas import RoleAssignmentRevocation
 from app.modules.auth.role_assignment_service import revoke_organization_role
-from app.modules.organizations.dependencies import require_organization_admin_for_org_id
-from app.modules.organizations.queries import (
-    get_user_organization_id,
-    get_organization,
+from app.modules.organizations.dependencies import (
+    require_organization_admin_for_org_id,
+    require_current_user_organization_admin,
 )
 from app.core.supabase_admin import supabase_admin
 from app.shared.tasks.event_tasks import process_events_task
@@ -109,11 +105,9 @@ def register_organization(
 # -----------------------------------------
 @router.get("/me")
 def get_my_organization(
-    current_user=Depends(get_current_user)
+    organization=Depends(require_current_user_organization_admin),
 ):
-    org_id = get_user_organization_id(current_user["id"])
-
-    return get_organization(org_id)
+    return organization
 
 
 # --------------------------------------------
@@ -122,14 +116,12 @@ def get_my_organization(
 @router.post("/upload-logo")
 async def upload_logo(
     file: UploadFile = File(...),
-    current_user=Depends(get_current_user)
+    organization=Depends(require_current_user_organization_admin),
 ) -> dict:
 
-    # Get org id and require scoped organization-admin authority before any
-    # object is written with the trusted storage client.
-    org_id = get_user_organization_id(current_user["id"])
-    require_organization_admin_for_org_id(org_id, current_user)
-
+    # The dependency resolves one organization-admin scope and authorizes it
+    # before this route performs any trusted Storage or database mutation.
+    org_id = str(organization["id"])
     file_bytes = await file.read()
 
     try:
@@ -157,14 +149,9 @@ async def upload_logo(
 @router.put("/update")
 def update_my_organization(
     payload: OrganizationUpdate,
-    current_user=Depends(get_current_user),
-    _=Depends(require_permission("manage_organization"))
+    organization=Depends(require_current_user_organization_admin),
 ):
-
-    # get user org_id
-    org_id = get_user_organization_id(current_user["id"])
-
-    return update_organization(org_id, payload)
+    return update_organization(str(organization["id"]), payload)
 
 
 # -----------------------------------------------
