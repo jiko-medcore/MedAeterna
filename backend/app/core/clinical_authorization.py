@@ -191,6 +191,8 @@ def authorize_clinical_access(
             str(patient_id),
             organization_id=organization_id,
             allow_practitioner=False,
+            resource_family="clinical_history",
+            action=action,
         )
         checked.update({"subject_is_actor", "permitted_resource_scope"})
     elif is_org_admin and allow_organization_admin and organization_id:
@@ -217,8 +219,10 @@ def authorize_clinical_access(
             current_user,
             str(patient_id),
             organization_id=organization_id,
+            resource_family="clinical_history",
+            action=action,
         )
-        # A verified active treatment/consent relationship was required above.
+        # A verified active treatment relationship was required above.
         checked.update({"patient_relationship", "consent_if_required"})
     else:
         _deny("Access denied")
