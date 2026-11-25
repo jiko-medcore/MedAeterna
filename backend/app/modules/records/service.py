@@ -129,7 +129,7 @@ def fetch_medical_records(
     )
     response = (
         supabase_admin.table("medical_records")
-        .select("id, created_at, facility_name, provider_name, record_type, summary")
+        .select("id, created_at, record_type")
         .eq("patient_id", str(patient_id))
         .execute()
     )
