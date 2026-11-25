@@ -47,7 +47,7 @@ def create_condition(
     current_user: dict = Depends(get_current_user),
 ):
     current_user = _authorize_record_write(current_user, payload.patient_id, "create_condition", "condition")
-    return create_record(payload, clinician_id=current_user["id"])
+    return create_record(payload, authorized_context=current_user)
 
 
 @router.post("/medications", status_code=201)
