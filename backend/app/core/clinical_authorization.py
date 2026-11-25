@@ -222,8 +222,10 @@ def authorize_clinical_access(
             resource_family="clinical_history",
             action=action,
         )
-        # A verified active treatment relationship was required above.
-        checked.update({"patient_relationship", "consent_if_required"})
+        # Treatment relationship is verified above. Consent is a separate SPEC-05
+        # gate and is deliberately not asserted until trusted consent policy
+        # evaluation is wired into this authorization context.
+        checked.add("patient_relationship")
     else:
         _deny("Access denied")
 
