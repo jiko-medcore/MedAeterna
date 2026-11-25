@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from app.modules.organizations.profile import router as profile_router
 from app.modules.organizations.profile import service as profile_service
+from app.modules.organizations.dependencies import require_current_user_organization_admin
 from app.modules.organizations.profile.schemas import OrganizationProfileUpdate
 
 ORG_ID = "11111111-1111-4111-8111-111111111111"
@@ -120,14 +121,26 @@ def test_update_audits_before_write_and_scopes_audit(monkeypatch):
 def test_router_resolves_organization_from_trusted_admin_roles(monkeypatch):
     captured: dict = {}
     monkeypatch.setattr(
+        "app.modules.organizations.dependencies.get_organization",
+        lambda organization_id: organization_row(),
+    )
+    monkeypatch.setattr(
         profile_router,
         "update_profile",
         lambda **kwargs: captured.update(kwargs) or organization_row(),
     )
 
+    current_user = {
+        "id": ACTOR_ID,
+        "roles": org_admin_roles(),
+        "organization_ids": [ORG_ID],
+    }
+    organization = require_current_user_organization_admin(current_user=current_user)
+
     profile_router.update_organization_profile(
         payload=profile_payload(),
-        current_user={"id": ACTOR_ID, "roles": org_admin_roles()},
+        current_user=current_user,
+        organization=organization,
     )
 
     assert captured["organization_id"] == ORG_ID
@@ -137,6 +150,11 @@ def test_router_resolves_organization_from_trusted_admin_roles(monkeypatch):
 
 def test_router_fails_closed_for_multi_organization_admin(monkeypatch):
     captured: dict = {}
+    lookup_calls: list[str] = []
+    monkeypatch.setattr(
+        "app.modules.organizations.dependencies.get_organization",
+        lambda organization_id: lookup_calls.append(organization_id) or organization_row(),
+    )
     monkeypatch.setattr(
         profile_router,
         "update_profile",
@@ -144,13 +162,14 @@ def test_router_fails_closed_for_multi_organization_admin(monkeypatch):
     )
 
     with pytest.raises(HTTPException) as exc:
-        profile_router.update_organization_profile(
-            payload=profile_payload(),
+        require_current_user_organization_admin(
             current_user={
                 "id": ACTOR_ID,
                 "roles": org_admin_roles() + org_admin_roles(OTHER_ORG_ID),
+                "organization_ids": [ORG_ID, OTHER_ORG_ID],
             },
         )
 
     assert exc.value.status_code == 403
     assert captured == {}
+    assert lookup_calls == []
