@@ -73,7 +73,7 @@ def _is_invalid_access_token_error(exc: Exception) -> bool:
         error_status = int(raw_status) if raw_status is not None else None
     except (TypeError, ValueError):
         error_status = None
-    if error_status is None or not 400 <= error_status < 500:
+    if error_status not in {400, 401}:
         return False
     return code in invalid_codes or error_name in invalid_error_names
 
