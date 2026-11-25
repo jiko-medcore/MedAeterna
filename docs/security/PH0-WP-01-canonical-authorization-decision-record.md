@@ -56,6 +56,10 @@ A non-human background worker is not exempt: it requires a separately defined wo
 
 **Scope note:** Apply this contract to the sensitive service inventory in a later slice. Existing PH0-WP-02 coverage is retained; no patient/practitioner/clinical service is modified in this first slice.
 
+## Source reconciliation note
+
+SPEC-01 contains an older statement that the current user_roles schema has no assignment status. SPEC-02 defines active/revoked assignment status and its lifecycle migration, and the current runtime query filters user_roles by status = active. For this implementation, SPEC-02 is the governing assignment-lifecycle source; the stale SPEC-01 wording should be corrected in a documentation-only follow-up. No schema change is proposed here.
+
 ## First implementation slice — authentication and organization boundaries
 
 The first implementation slice on `security/ph0-wp01-auth-org-foundation` is limited to:
@@ -70,7 +74,7 @@ The first implementation slice on `security/ph0-wp01-auth-org-foundation` is lim
    - Preserve the existing response fields for compatibility; authorization decisions must use normalized `roles` and exact scope, not scalar booleans.
 
 2. Organization membership and authority
-   - Check membership/authority from the verified authorization context before any privileged organization-row lookup.
+   - Check membership/authority from the verified authorization context before any privileged organization-row lookup. The membership dependency returns only an organization membership context and does not retrieve organization configuration.
    - Check organization-administrator authority against the exact requested organization before any privileged organization-row lookup.
    - Keep membership and administrator checks as separate predicates.
    - Make organization-configuration read dependencies consistent with SPEC-03.
