@@ -61,7 +61,7 @@ Laboratory result creation or update requires a relationship bound to the exact 
 
 ## Relationship source reconciliation
 
-The repository contains incompatible relationship representations: application code references `patient_access`, while a standalone SQL file defines `patient_access_grants`; local Supabase has neither grant table installed. Local Supabase also contains `patient_care_team`, `clinicians_patients`, and `care_teams` with differing columns and lifecycle fields. SPEC-06 selects `public.patient_access_grants` as the canonical explicit patient-approved read-grant table and defines a migration path. It does not select a canonical treatment-assignment table or claim the grant table is installed.
+The repository contains incompatible historical relationship representations. The approved PH0-WP-01 decision record `PH0-WP-01-patient-treatment-source-decision.md` now designates `public.patient_care_team` as the authoritative active practitioner treatment-assignment source for Phase 0. Its trusted evidence must bind exact patient, practitioner profile, and organization identifiers and enforce `status = active`, `start_date`, and exclusive `end_date` semantics. Practitioner identity is resolved only through a unique `practitioners.profile_id` link to the authenticated user. `clinicians_patients` and `care_teams` are not fallback treatment authority. SPEC-06 separately selects `public.patient_access_grants` as the canonical patient-approved resource-scoped read-grant table; that table is not thereby installed or integrated. Consent remains separate under SPEC-05.
 
 Until that reconciliation, no legacy row is assumed to be approved, active, scoped, or equivalent to another source merely because it exists. Emergency grant values in the legacy schema are specifically not accepted by this policy; SPEC-08 prohibits break-glass access in the current Phase 0 policy.
 
@@ -114,3 +114,8 @@ Relationship-source reconciliation, `patient_access_grants` integration, full SP
 ### Order 9 local relationship evidence (24 November 2026)
 
 The [Order 9 route record](PH0-WP-02-route-authorization-order-9-record.md) maps all 45 mounted sensitive routes. Practitioner IDs on clinical create payloads are bound to the verified actor; `/patients/mine` derives practitioner identity and one organization from trusted role state and returns only active organization-scoped `patient_care_team` relationships; QR generation no longer requires a full patient/clinical fetch. These are local application controls only. Canonical grants, full consent evaluation, relationship-source reconciliation, and hosted verification remain open.
+
+
+### PH0-WP-01 approved treatment-source decision (25 November 2026)
+
+The approved source decision is recorded in [PH0-WP-01 patient treatment source decision](PH0-WP-01-patient-treatment-source-decision.md). Runtime integration delegates the final patient relationship decision to `evaluate_patient_relationship()`; the trusted adapter loads only verified `patient_care_team` rows. This implementation work is local to the patient-relationship branch and does not imply migration, hosted verification, or Phase 0 acceptance.

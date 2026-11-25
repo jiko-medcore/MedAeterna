@@ -16,6 +16,7 @@ from app.core.role_catalogue import (
     normalize_role_assignment,
 )
 from app.core.supabase_admin import supabase_admin
+from app.core.patient_relationship_policy import RelationshipEvidence, evaluate_patient_relationship
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,17 @@ def _is_invalid_access_token_error(exc: Exception) -> bool:
         "AuthSessionMissingError",
         "UserDoesNotExistError",
     }
+    raw_status = (
+        getattr(exc, "status_code", None)
+        or getattr(exc, "status", None)
+        or getattr(exc, "http_status", None)
+    )
+    try:
+        error_status = int(raw_status) if raw_status is not None else None
+    except (TypeError, ValueError):
+        error_status = None
+    if error_status not in {400, 401}:
+        return False
     return code in invalid_codes or error_name in invalid_error_names
 
 
@@ -439,98 +451,92 @@ def _fetch_patient(patient_id: str) -> dict[str, Any] | None:
 
 
 def _resolve_practitioner_id(user_id: str) -> str | None:
-    # Practitioners are commonly keyed by user/profile id; accept either link.
-    row = _fetch_single("practitioners", "id, profile_id", id=str(user_id))
-    if row and row.get("id"):
-        return str(row["id"])
-    row = _fetch_single("practitioners", "id, profile_id", profile_id=str(user_id))
-    if row and row.get("id"):
-        return str(row["id"])
-    return None
+    """Resolve exactly one practitioner profile linked to the authenticated user."""
+    if not user_id:
+        return None
+    rows = (
+        supabase_admin.table("practitioners")
+        .select("id, profile_id")
+        .eq("profile_id", str(user_id))
+        .limit(2)
+        .execute()
+    ).data or []
+    if len(rows) != 1:
+        return None
+    row = rows[0]
+    if str(row.get("profile_id") or "") != str(user_id) or not row.get("id"):
+        return None
+    return str(row["id"])
+
+
+def _parse_relationship_time(value: object) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed
+
+
+def _load_active_treatment_evidence(
+    patient_id: str, practitioner_id: str, organization_id: str, *, now: datetime
+) -> list[RelationshipEvidence]:
+    """Load trusted patient_care_team evidence; malformed rows never authorize."""
+    rows = (
+        supabase_admin.table("patient_care_team")
+        .select("id, patient_id, practitioner_id, organization_id, status, start_date, end_date")
+        .eq("patient_id", str(patient_id))
+        .eq("practitioner_id", str(practitioner_id))
+        .eq("organization_id", str(organization_id))
+        .eq("status", "active")
+        .execute()
+    ).data or []
+    evidence: list[RelationshipEvidence] = []
+    for row in rows:
+        if (
+            str(row.get("patient_id") or "") != str(patient_id)
+            or str(row.get("practitioner_id") or "") != str(practitioner_id)
+            or str(row.get("organization_id") or "") != str(organization_id)
+            or row.get("status") != "active"
+        ):
+            continue
+        start_value, end_value = row.get("start_date"), row.get("end_date")
+        effective_from = _parse_relationship_time(start_value) if start_value is not None else None
+        effective_until = _parse_relationship_time(end_value) if end_value is not None else None
+        if start_value is not None and effective_from is None:
+            continue
+        if end_value is not None and effective_until is None:
+            continue
+        evidence.append(RelationshipEvidence(
+            kind="active_treatment", status="active",
+            patient_id=str(patient_id), practitioner_id=str(practitioner_id),
+            organization_id=str(organization_id), effective_from=effective_from,
+            effective_until=effective_until, source_verified=bool(row.get("id")),
+        ))
+    return evidence
 
 
 def _active_care_team_access(patient_id: str, practitioner_id: str, organization_id: str | None) -> bool:
-    query = (
-        supabase_admin.table("patient_care_team")
-        .select("id, status")
-        .eq("patient_id", str(patient_id))
-        .eq("practitioner_id", str(practitioner_id))
-        .eq("status", "active")
-        .limit(1)
-    )
-    if organization_id:
-        query = query.eq("organization_id", str(organization_id))
-    return bool((query.execute().data or []))
-
-
-def _active_legacy_assignment_access(patient_id: str, user_id: str) -> bool:
-    # Legacy fallback for environments still using clinicians_patients.
-    query = (
-        supabase_admin.table("clinicians_patients")
-        .select("clinician_id, patient_id, active")
-        .eq("patient_id", str(patient_id))
-        .eq("clinician_id", str(user_id))
-        .eq("active", True)
-        .limit(1)
-    )
-    return bool((query.execute().data or []))
-
-
-def _active_consent_access(
-    patient_id: str,
-    practitioner_id: str | None,
-    organization_id: str | None,
-) -> bool:
+    """Compatibility boolean backed only by current authoritative assignments."""
+    if not organization_id:
+        return False
     now = datetime.now(timezone.utc)
-    query = (
-        supabase_admin.table("consent_records")
-        .select(
-            "id, status, granted_by, granted_at, effective_from, expires_at, "
-            "revoked_at, emergency_access, consent_type, practitioner_id, organization_id"
-        )
-        .eq("patient_id", str(patient_id))
-        .eq("status", "active")
-    )
-    if organization_id:
-        query = query.eq("organization_id", str(organization_id))
-
-    rows = query.execute().data or []
-    for row in rows:
-        row_practitioner = row.get("practitioner_id")
-        if row_practitioner and practitioner_id and str(row_practitioner) != str(practitioner_id):
-            continue
-        # Null practitioner_id means an organization/patient-granted scope; only
-        # acceptable when caller is the resolved practitioner in-context.
-        if row.get("revoked_at") is not None:
-            continue
-        if row.get("emergency_access") is True or row.get("consent_type") == "emergency":
-            continue
-        if not row.get("granted_by") or not row.get("granted_at"):
-            continue
-
-        granted_at = _consent_time(row.get("granted_at"))
-        expires_at = _consent_time(row.get("expires_at"))
-        effective_from = _consent_time(row.get("effective_from"))
-        if granted_at is None or granted_at > now or expires_at is None or expires_at <= granted_at:
-            continue
-        if effective_from is not None and effective_from > now:
-            continue
-        if expires_at <= now:
-            continue
-        return True
-    return False
-
-
-def _consent_time(value: object) -> datetime | None:
-    if value is None:
-        return None
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
+    return evaluate_patient_relationship(
+        actor_user_id="internal-verification", actor_category=PRACTITIONER,
+        actor_practitioner_id=str(practitioner_id),
+        linked_practitioner_user_id="internal-verification",
+        patient_id=str(patient_id), organization_id=str(organization_id),
+        resource_family="clinical_history", action="read",
+        evidence=_load_active_treatment_evidence(
+            str(patient_id), str(practitioner_id), str(organization_id), now=now
+        ), now=now,
+    ).allowed
 
 
 def authorize_patient_access(
@@ -541,64 +547,59 @@ def authorize_patient_access(
     allow_patient_self: bool = True,
     allow_practitioner: bool = True,
     require_organization_context: bool = False,
+    resource_family: str = "clinical_history",
+    action: str = "read",
 ) -> dict[str, Any]:
-    """Authorize access to a patient-scoped resource.
-
-    This is the canonical patient-access contract. It resolves context from the
-    target patient/resource and fails closed when required context is missing or
-    a qualifying relationship cannot be verified.
-    """
+    """Resolve trusted patient relationship evidence and delegate to SPEC-04."""
     if not patient_id:
         raise AuthorizationError(status.HTTP_400_BAD_REQUEST, "Patient context required")
-
     patient = _fetch_patient(str(patient_id))
     if not patient:
         raise AuthorizationError(status.HTTP_404_NOT_FOUND, "Patient not found")
-
     patient_org_id = str(patient.get("organization_id") or "") or None
     resolved_org_id = str(organization_id) if organization_id else patient_org_id
-
     if require_organization_context and not resolved_org_id:
         raise AuthorizationError(status.HTTP_400_BAD_REQUEST, "Organization context required")
     if organization_id and patient_org_id and str(organization_id) != patient_org_id:
-        # Do not leak existence across organization boundaries.
         raise AuthorizationError(status.HTTP_404_NOT_FOUND, "Patient not found")
 
     user_id = str(current_user.get("id") or "")
     roles = current_user.get("roles") or []
+    patient_actor = allow_patient_self and has_scoped_category(roles, PATIENT) and user_id == str(patient_id)
+    practitioner_actor = allow_practitioner and any(r.get("category") == PRACTITIONER for r in roles)
 
-    if allow_patient_self and has_scoped_category(roles, PATIENT) and user_id == str(patient_id):
-        return {**current_user, "authorized_patient_id": str(patient_id), "authorized_organization_id": resolved_org_id}
+    if patient_actor:
+        decision = evaluate_patient_relationship(
+            actor_user_id=user_id, actor_category=PATIENT, actor_patient_id=user_id,
+            patient_id=str(patient_id), organization_id=resolved_org_id,
+            resource_family=resource_family, action=action, evidence=(),
+            now=datetime.now(timezone.utc),
+        )
+        if decision.allowed:
+            return {**current_user, "authorized_patient_id": str(patient_id),
+                    "authorized_organization_id": resolved_org_id}
+        _deny("Patient access denied")
 
-    # System administrators are not granted patient-data access by SPEC-08.
     if has_scoped_category(roles, SYSTEM_ADMINISTRATOR) and not has_scoped_category(roles, PATIENT):
         _deny("Patient access denied")
 
-    if allow_practitioner and any(r.get("category") == PRACTITIONER for r in roles):
+    if practitioner_actor and resolved_org_id:
         practitioner_id = _resolve_practitioner_id(user_id)
-        # Organization-scoped practitioner access must be bound to an org context.
-        if practitioner_id and resolved_org_id and _active_care_team_access(str(patient_id), practitioner_id, resolved_org_id):
-            return {
-                **current_user,
-                "authorized_patient_id": str(patient_id),
-                "authorized_organization_id": resolved_org_id,
-                "authorized_practitioner_id": practitioner_id,
-            }
-        if practitioner_id and resolved_org_id and _active_consent_access(str(patient_id), practitioner_id, resolved_org_id):
-            return {
-                **current_user,
-                "authorized_patient_id": str(patient_id),
-                "authorized_organization_id": resolved_org_id,
-                "authorized_practitioner_id": practitioner_id,
-            }
-        # Legacy assignment fallback when no org-bound relationship schema is present.
-        if resolved_org_id is None and _active_legacy_assignment_access(str(patient_id), user_id):
-            return {
-                **current_user,
-                "authorized_patient_id": str(patient_id),
-                "authorized_organization_id": None,
-            }
-
+        if practitioner_id:
+            now = datetime.now(timezone.utc)
+            evidence = _load_active_treatment_evidence(
+                str(patient_id), practitioner_id, str(resolved_org_id), now=now
+            )
+            decision = evaluate_patient_relationship(
+                actor_user_id=user_id, actor_category=PRACTITIONER,
+                actor_practitioner_id=practitioner_id, linked_practitioner_user_id=user_id,
+                patient_id=str(patient_id), organization_id=str(resolved_org_id),
+                resource_family=resource_family, action=action, evidence=evidence, now=now,
+            )
+            if decision.allowed:
+                return {**current_user, "authorized_patient_id": str(patient_id),
+                        "authorized_organization_id": str(resolved_org_id),
+                        "authorized_practitioner_id": practitioner_id}
     _deny("Patient access denied")
     raise AssertionError("unreachable")
 
@@ -888,9 +889,3 @@ def active_care_team_access(
     """Check an active, organization-bound care-team treatment relationship."""
     return _active_care_team_access(str(patient_id), str(practitioner_id), organization_id)
 
-
-def active_consent_access(
-    patient_id: str, practitioner_id: str | None, organization_id: str | None
-) -> bool:
-    """Check an active, in-scope consent record for the given recipient."""
-    return _active_consent_access(str(patient_id), practitioner_id, organization_id)

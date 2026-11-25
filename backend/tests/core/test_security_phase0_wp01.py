@@ -98,31 +98,106 @@ def test_authorize_patient_access_denies_cross_org_patient(monkeypatch):
     assert exc.value.status_code == 404
 
 
-def test_authorize_patient_access_requires_verified_relationship(monkeypatch):
-    responses = {
-        ("patients", (("eq", "id", "patient-1"),)): [{"id": "patient-1", "organization_id": "org-1"}],
-        ("practitioners", (("eq", "id", "user-prac-1"),)): [],
-        ("practitioners", (("eq", "profile_id", "user-prac-1"),)): [{"id": "prac-1", "profile_id": "user-prac-1"}],
-        ("patient_care_team", (("eq", "organization_id", "org-1"), ("eq", "patient_id", "patient-1"), ("eq", "practitioner_id", "prac-1"), ("eq", "status", "active"))): [],
-        ("consent_records", (("eq", "organization_id", "org-1"), ("eq", "patient_id", "patient-1"), ("eq", "status", "active"))): [],
-        ("clinicians_patients", (("eq", "active", True), ("eq", "clinician_id", "user-prac-1"), ("eq", "patient_id", "patient-1"))): [],
+def _relationship_responses(rows, *, practitioner_rows=None):
+    return {
+        ("patients", (("eq", "id", "patient-1"),)): [
+            {"id": "patient-1", "organization_id": "org-1"}
+        ],
+        ("practitioners", (("eq", "profile_id", "user-prac-1"),)): (
+            practitioner_rows if practitioner_rows is not None else [
+                {"id": "prac-1", "profile_id": "user-prac-1"}
+            ]
+        ),
+        ("patient_care_team", (
+            ("eq", "organization_id", "org-1"),
+            ("eq", "patient_id", "patient-1"),
+            ("eq", "practitioner_id", "prac-1"),
+            ("eq", "status", "active"),
+        )): rows,
     }
-    monkeypatch.setattr(security, "supabase_admin", FakeSupabaseAdmin(responses))
+
+
+def _active_relationship_row(**overrides):
+    now = datetime.now(timezone.utc)
+    row = {
+        "id": "ct-1",
+        "patient_id": "patient-1",
+        "practitioner_id": "prac-1",
+        "organization_id": "org-1",
+        "status": "active",
+        "start_date": (now - timedelta(days=1)).isoformat(),
+        "end_date": None,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_authorize_patient_access_denies_when_no_authoritative_relationship(monkeypatch):
+    monkeypatch.setattr(security, "supabase_admin", FakeSupabaseAdmin(_relationship_responses([])))
     with pytest.raises(HTTPException) as exc:
         security.authorize_patient_access(_practitioner_user(), "patient-1", organization_id="org-1")
     assert exc.value.status_code == 403
 
 
-def test_authorize_patient_access_allows_active_care_team(monkeypatch):
+def test_authorize_patient_access_allows_verified_active_treatment(monkeypatch):
+    monkeypatch.setattr(
+        security, "supabase_admin",
+        FakeSupabaseAdmin(_relationship_responses([_active_relationship_row()])),
+    )
+    result = security.authorize_patient_access(
+        _practitioner_user(), "patient-1", organization_id="org-1"
+    )
+    assert result["authorized_patient_id"] == "patient-1"
+    assert result["authorized_practitioner_id"] == "prac-1"
+
+
+@pytest.mark.parametrize("overrides", [
+    {"status": "inactive"},
+    {"status": "suspended"},
+    {"start_date": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()},
+    {"end_date": (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()},
+    {"end_date": datetime.now(timezone.utc).isoformat()},
+    {"organization_id": "org-2"},
+    {"patient_id": "patient-2"},
+    {"practitioner_id": "prac-2"},
+    {"start_date": "not-a-timestamp"},
+    {"end_date": "not-a-timestamp"},
+])
+def test_authorize_patient_access_denies_inactive_expired_or_mismatched_relationship(monkeypatch, overrides):
+    monkeypatch.setattr(
+        security, "supabase_admin",
+        FakeSupabaseAdmin(_relationship_responses([_active_relationship_row(**overrides)])),
+    )
+    with pytest.raises(HTTPException) as exc:
+        security.authorize_patient_access(_practitioner_user(), "patient-1", organization_id="org-1")
+    assert exc.value.status_code == 403
+
+
+def test_authorize_patient_access_denies_ambiguous_practitioner_profile(monkeypatch):
+    rows = [
+        {"id": "prac-1", "profile_id": "user-prac-1"},
+        {"id": "prac-2", "profile_id": "user-prac-1"},
+    ]
+    monkeypatch.setattr(
+        security, "supabase_admin",
+        FakeSupabaseAdmin(_relationship_responses([_active_relationship_row()], practitioner_rows=rows)),
+    )
+    with pytest.raises(HTTPException) as exc:
+        security.authorize_patient_access(_practitioner_user(), "patient-1", organization_id="org-1")
+    assert exc.value.status_code == 403
+
+
+def test_authorize_patient_access_uses_only_profile_id_identity_link(monkeypatch):
     responses = {
-        ("patients", (("eq", "id", "patient-1"),)): [{"id": "patient-1", "organization_id": "org-1"}],
-        ("practitioners", (("eq", "id", "user-prac-1"),)): [],
-        ("practitioners", (("eq", "profile_id", "user-prac-1"),)): [{"id": "prac-1", "profile_id": "user-prac-1"}],
-        ("patient_care_team", (("eq", "organization_id", "org-1"), ("eq", "patient_id", "patient-1"), ("eq", "practitioner_id", "prac-1"), ("eq", "status", "active"))): [{"id": "ct-1"}],
+        ("patients", (("eq", "id", "patient-1"),)): [
+            {"id": "patient-1", "organization_id": "org-1"}
+        ],
+        ("practitioners", (("eq", "profile_id", "user-prac-1"),)): [],
     }
     monkeypatch.setattr(security, "supabase_admin", FakeSupabaseAdmin(responses))
-    result = security.authorize_patient_access(_practitioner_user(), "patient-1", organization_id="org-1")
-    assert result["authorized_practitioner_id"] == "prac-1"
+    with pytest.raises(HTTPException) as exc:
+        security.authorize_patient_access(_practitioner_user(), "patient-1", organization_id="org-1")
+    assert exc.value.status_code == 403
 
 
 def test_authorize_patient_access_denies_system_admin_without_patient_scope(monkeypatch):
@@ -193,70 +268,27 @@ def test_require_patient_access_manual_compatibility_builds_context(monkeypatch)
             {"id": "role-1", "name": "practitioner", "role_type": "organization", "organization_id": "org-1", "is_active": True}
         ],
         ("patients", (("eq", "id", "patient-1"),)): [{"id": "patient-1", "organization_id": "org-1"}],
-        ("practitioners", (("eq", "id", "user-prac-1"),)): [],
         ("practitioners", (("eq", "profile_id", "user-prac-1"),)): [{"id": "prac-1", "profile_id": "user-prac-1"}],
-        ("patient_care_team", (("eq", "organization_id", "org-1"), ("eq", "patient_id", "patient-1"), ("eq", "practitioner_id", "prac-1"), ("eq", "status", "active"))): [{"id": "ct-1"}],
+        ("patient_care_team", (("eq", "organization_id", "org-1"), ("eq", "patient_id", "patient-1"), ("eq", "practitioner_id", "prac-1"), ("eq", "status", "active"))): [_active_relationship_row()],
     }
     monkeypatch.setattr(security, "supabase_admin", FakeSupabaseAdmin(responses))
     assert security.require_patient_access_manual("patient-1", "user-prac-1") is True
 
 
-def _consent_responses(rows):
-    return {
-        (
-            "consent_records",
-            (
-                ("eq", "organization_id", "org-1"),
-                ("eq", "patient_id", "patient-1"),
-                ("eq", "status", "active"),
-            ),
-        ): rows
-    }
 
 
-def _valid_consent_row(**overrides):
-    now = datetime.now(timezone.utc)
-    row = {
-        "id": "consent-1",
-        "granted_by": "patient-1",
-        "granted_at": (now - timedelta(days=1)).isoformat(),
-        "effective_from": (now - timedelta(days=1)).isoformat(),
-        "expires_at": (now + timedelta(days=1)).isoformat(),
-        "revoked_at": None,
-        "emergency_access": False,
-        "consent_type": "treatment",
-        "practitioner_id": "prac-1",
-        "organization_id": "org-1",
-    }
-    row.update(overrides)
-    return row
+@pytest.mark.parametrize("status_value", [400, 401])
+def test_invalid_token_code_with_client_error_status_is_401(status_value):
+    exc = RuntimeError("auth failure")
+    exc.code = "bad_jwt"
+    exc.status_code = status_value
+    assert security._is_invalid_access_token_error(exc) is True
 
 
-def test_active_consent_requires_finite_expiry_and_grant_provenance(monkeypatch):
-    monkeypatch.setattr(
-        security,
-        "supabase_admin",
-        FakeSupabaseAdmin(_consent_responses([_valid_consent_row()])),
-    )
-    assert security._active_consent_access("patient-1", "prac-1", "org-1") is True
-
-
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        {"expires_at": None},
-        {"granted_by": None},
-        {"granted_at": None},
-        {"revoked_at": "2026-11-21T00:00:00+00:00"},
-        {"emergency_access": True},
-        {"consent_type": "emergency"},
-        {"expires_at": "2020-01-01T00:00:00+00:00"},
-    ],
-)
-def test_active_consent_denies_unproven_or_non_finite_rows(monkeypatch, overrides):
-    monkeypatch.setattr(
-        security,
-        "supabase_admin",
-        FakeSupabaseAdmin(_consent_responses([_valid_consent_row(**overrides)])),
-    )
-    assert security._active_consent_access("patient-1", "prac-1", "org-1") is False
+@pytest.mark.parametrize("status_value", [None, 403, 429, 500, 503])
+def test_credential_like_error_code_with_infrastructure_status_is_not_401(status_value):
+    exc = RuntimeError("auth infrastructure failure")
+    exc.code = "bad_jwt"
+    if status_value is not None:
+        exc.status_code = status_value
+    assert security._is_invalid_access_token_error(exc) is False
