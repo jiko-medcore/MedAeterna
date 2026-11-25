@@ -465,3 +465,394 @@ def test_update_my_organization_service_exception_propagates(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Organization not found"
+
+
+# ============================================================
+# ASSIGN USER ROLE
+# ============================================================
+
+
+def test_assign_role_success(
+    authenticated_client,
+    mocker,
+):
+
+
+    _override_manage_organization_permission(
+        _allow_manage_organization
+    )
+
+    assign_role = mocker.patch.object(
+        router,
+        "assign_user_role",
+        return_value={
+            "id": "user-role-1",
+            "user_id": str(USER_ID),
+            "role_id": "role-1",
+            "organization_id": str(ORGANIZATION_ID),
+        },
+    )
+
+    response = authenticated_client.post(
+        f"/organizations/{ORGANIZATION_ID}/assign-role",
+        json=ROLE_PAYLOAD,
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["user_id"] == str(USER_ID)
+    assert body["organization_id"] == str(ORGANIZATION_ID)
+
+    assigned_payload = assign_role.call_args.args[0]
+    assert assigned_payload.user_id == USER_ID
+    assert assigned_payload.role_name == "practitioner"
+    assert assigned_payload.org_id == str(ORGANIZATION_ID)
+    assert assign_role.call_args.kwargs["actor_id"] == USER_ID
+
+
+def test_assign_role_organization_mismatch(
+    authenticated_client,
+    mocker,
+):
+
+
+    _override_manage_organization_permission(
+        _allow_manage_organization
+    )
+
+    assign_role = mocker.patch.object(
+        router,
+        "assign_user_role",
+    )
+
+    response = authenticated_client.post(
+        f"/organizations/{ORGANIZATION_ID}/assign-role",
+        json={
+            "user_id": str(USER_ID),
+            "role_name": "practitioner",
+            "org_id": "22222222-2222-2222-2222-222222222222",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Organization mismatch"
+    )
+
+    assign_role.assert_not_called()
+
+
+def test_assign_role_permission_denied(
+    authenticated_client,
+    mocker,
+):
+
+    app.dependency_overrides[require_organization_admin_for_org_id] = (
+        lambda org_id: (_ for _ in ()).throw(
+            HTTPException(status_code=403, detail="Organization administrator privileges are required.")
+        )
+    )
+
+    assign_role = mocker.patch.object(
+        router,
+        "assign_user_role",
+    )
+
+    response = authenticated_client.post(
+        f"/organizations/{ORGANIZATION_ID}/assign-role",
+        json=ROLE_PAYLOAD,
+    )
+
+    assert response.status_code == 403
+    assert "administrator" in response.json()["detail"].lower()
+
+    assign_role.assert_not_called()
+
+
+def test_assign_role_invalid_payload(
+    authenticated_client,
+    mocker,
+):
+
+
+    _override_manage_organization_permission(
+        _allow_manage_organization
+    )
+
+    response = authenticated_client.post(
+        f"/organizations/{ORGANIZATION_ID}/assign-role",
+        json={
+            "user_id": "not-a-uuid",
+            "role_name": "practitioner",
+            "org_id": str(ORGANIZATION_ID),
+        },
+    )
+
+    assert response.status_code == 422
+
+
+# ============================================================
+# INVITE USER
+# ============================================================
+
+
+def test_invite_user_success(
+    authenticated_client,
+    current_user,
+    mocker,
+):
+
+
+    _override_manage_organization_permission(
+        _allow_manage_organization
+    )
+
+    mock_create_invitation = mocker.patch.object(
+        router,
+        "create_invitation",
+        return_value={
+            "id": "invite-1",
+            "email": "staff@test.com",
+            "organization_id": str(ORGANIZATION_ID),
+            "role_name": "practitioner",
+        },
+    )
+
+    response = authenticated_client.post(
+        f"/organizations/{ORGANIZATION_ID}/invite",
+        json=INVITE_PAYLOAD,
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["email"] == "staff@test.com"
+    assert body["organization_id"] == str(
+        ORGANIZATION_ID
+    )
+
+    mock_create_invitation.assert_called_once_with(
+        str(ORGANIZATION_ID),
+        "staff@test.com",
+        "practitioner",
+        current_user["id"],
+        actor_roles=current_user["roles"],
+        actor_email=current_user["email"],
+    )
+
+
+def test_invite_user_to_another_organization(
+    authenticated_client,
+    mocker,
+):
+
+
+    create_invitation = mocker.patch.object(
+        router,
+        "create_invitation",
+    )
+
+    other_org_id = (
+        "22222222-2222-2222-2222-222222222222"
+    )
+
+    response = authenticated_client.post(
+        f"/organizations/{other_org_id}/invite",
+        json={
+            "email": "staff@test.com",
+            "role_name": "practitioner",
+            "org_id": other_org_id,
+        },
+    )
+
+    assert response.status_code == 403
+
+    assert "permission" in response.json()["detail"].lower()
+
+    create_invitation.assert_not_called()
+
+
+def test_invite_user_permission_denied(
+    authenticated_client,
+    mocker,
+):
+
+    app.dependency_overrides[require_organization_admin_for_org_id] = (
+        lambda org_id: (_ for _ in ()).throw(
+            HTTPException(status_code=403, detail="Organization administrator privileges are required.")
+        )
+    )
+
+    create_invitation = mocker.patch.object(
+        router,
+        "create_invitation",
+    )
+
+    response = authenticated_client.post(
+        f"/organizations/{ORGANIZATION_ID}/invite",
+        json=INVITE_PAYLOAD,
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "Organization administrator privileges are required."
+    )
+
+    create_invitation.assert_not_called()
+
+
+def test_invite_user_invalid_payload(
+    authenticated_client,
+    mocker,
+):
+
+
+    _override_manage_organization_permission(
+        _allow_manage_organization
+    )
+
+    response = authenticated_client.post(
+        f"/organizations/{ORGANIZATION_ID}/invite",
+        json={
+            "email": "not-an-email",
+            "role_name": "practitioner",
+            "org_id": str(ORGANIZATION_ID),
+        },
+    )
+
+    assert response.status_code == 422
+
+
+# ============================================================
+# ACCEPT INVITATION
+# ============================================================
+
+
+def test_accept_invitation_success(
+    client,
+    mocker,
+):
+    accept_invitation = mocker.patch.object(
+        router,
+        "accept_invitation",
+        return_value={
+            "message": "Account created successfully",
+            "user_id": str(USER_ID),
+        },
+    )
+
+    response = client.post(
+        "/organizations/accept-invite",
+        json=ACCEPT_INVITE_PAYLOAD,
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["message"] == (
+        "Account created successfully"
+    )
+    assert body["user_id"] == str(USER_ID)
+
+    accept_invitation.assert_called_once()
+
+    payload = accept_invitation.call_args.args[0]
+
+    assert payload.token == (
+        ACCEPT_INVITE_PAYLOAD["token"]
+    )
+    assert payload.password == (
+        ACCEPT_INVITE_PAYLOAD["password"]
+    )
+
+
+def test_accept_invitation_invalid_payload(
+    client,
+):
+    response = client.post(
+        "/organizations/accept-invite",
+        json={
+            "token": "",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_accept_invitation_service_exception_propagates(
+    client,
+    mocker,
+):
+    mocker.patch.object(
+        router,
+        "accept_invitation",
+        side_effect=HTTPException(
+            status_code=400,
+            detail="Invalid or expired invitation",
+        ),
+    )
+
+    response = client.post(
+        "/organizations/accept-invite",
+        json=ACCEPT_INVITE_PAYLOAD,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Invalid or expired invitation"
+    )
+
+
+# ============================================================
+# AUTHENTICATION
+# ============================================================
+
+
+@pytest.mark.parametrize(
+    "method,url",
+    [
+        (
+            "GET",
+            "/organizations/me",
+        ),
+        (
+            "POST",
+            "/organizations/upload-logo",
+        ),
+    ],
+)
+def test_authenticated_organization_routes_require_authentication(
+    client,
+    method,
+    url,
+):
+    if method == "GET":
+        response = client.get(url)
+    else:
+        response = client.post(
+            url,
+            files={
+                "file": (
+                    "logo.png",
+                    b"\x89PNG\r\n\x1a\nfake",
+                    "image/png",
+                )
+            },
+        )
+
+    assert response.status_code == 401
+
+
+# ============================================================
+# PERMISSION DEPENDENCY — REAL GUARD
+# ============================================================
+
+
+def test_manage_organization_permission_dependency_is_registered():
+    dependency = _find_manage_organization_dependencies()
+
+    assert dependency is not None
