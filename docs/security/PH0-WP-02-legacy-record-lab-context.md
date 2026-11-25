@@ -83,7 +83,14 @@ SPEC-04 permits practitioner laboratory-result reads only through a qualifying r
 - minimal medical-history projection;
 - patient summary/FHIR/timeline service denial before data access when context is missing.
 
-No local test run or CI success is claimed for this branch yet. The exact head must pass the configured Backend CI before review/merge.
+Exact branch head verified: `62b3ffd6f07c4934f3ec8762ac2fcf53f8b6910a`.
+
+GitHub Actions run `45697746429` — **SUCCESS**:
+- Backend compile step passed.
+- Backend test suite: **1,523 passed, 1 skipped, 6 warnings**.
+- No test failures.
+
+An earlier run failed because a patient-role test fixture incorrectly assigned an organization scope to the patient role; the fixture was corrected to match the role catalogue's global patient-role semantics. The final exact-head run above passed.
 
 ## 6. Explicit exclusions and stop controls
 
