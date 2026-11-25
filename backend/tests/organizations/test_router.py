@@ -319,7 +319,7 @@ def test_upload_organization_logo_success(
     )
     admin.table.return_value = organizations_query
 
-    content = b"\\x89PNG\\r\\n\\x1a\\nfake-png"
+    content = b"\x89PNG\r\n\x1a\nfake-png"
     response = authenticated_client.post(
         "/organizations/upload-logo",
         files={"file": ("logo.png", content, "image/png")},
