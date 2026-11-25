@@ -4,7 +4,11 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from app.core.clinical_authorization import authorize_patient_list_access
+from app.core.clinical_authorization import (
+    CLINICAL_RECORD,
+    authorize_clinical_access,
+    authorize_patient_list_access,
+)
 from app.core.patient_avatar_access import (
     create_signed_patient_avatar_url,
     is_patient_avatar_object_path,
@@ -95,8 +99,16 @@ def patient_fhir(
     patient_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    authorize_patient_access(current_user, str(patient_id))
-    patient, records = get_patient_with_records(str(patient_id))
+    context = authorize_clinical_access(
+        current_user,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
+    patient, records = get_patient_with_records(
+        str(patient_id),
+        authorized_context=context,
+    )
     return build_patient_bundle(patient, records)
 
 
@@ -117,8 +129,13 @@ def patient_summary(
     current_user: dict = Depends(get_current_user),
 ):
     # Derive organization scope from the target patient and fail closed.
-    authorize_patient_access(current_user, str(patient_id))
-    return get_patient_summary(str(patient_id))
+    context = authorize_clinical_access(
+        current_user,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
+    return get_patient_summary(str(patient_id), authorized_context=context)
 
 
 @router.get("/{patient_id}/timeline")
@@ -126,8 +143,13 @@ def get_patient_timeline(
     patient_id: UUID,
     current_user: dict = Depends(get_current_user),
 ):
-    authorize_patient_access(current_user, str(patient_id))
-    return build_patient_timeline(patient_id)
+    context = authorize_clinical_access(
+        current_user,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
+    return build_patient_timeline(patient_id, authorized_context=context)
 
 
 @router.post("/{patient_id}/assign")
