@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.core.clinical_authorization import CLINICAL_RECORD
 from app.modules.laboratory import service as lab_service
 from app.modules.records import service as record_service
+from app.modules.patients import service as patient_service
 
 PATIENT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 LAB_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
@@ -277,3 +278,26 @@ def test_medical_history_projection_requires_context_and_does_not_overfetch(monk
     assert "*" not in columns
     assert "clinical_data" not in columns
     assert fake.calls[0]["filters"] == {"patient_id": PATIENT_ID}
+
+
+
+@pytest.mark.parametrize(
+    "service_call",
+    [
+        lambda: patient_service.get_patient_summary(PATIENT_ID, authorized_context=None),
+        lambda: patient_service.get_patient_with_records(PATIENT_ID, authorized_context=None),
+        lambda: patient_service.build_patient_timeline(
+            __import__("uuid").UUID(PATIENT_ID),
+            authorized_context=None,
+        ),
+    ],
+)
+def test_patient_record_services_deny_missing_context_before_query(monkeypatch, service_call):
+    fake = FakeClient(lambda _query: [])
+    monkeypatch.setattr(patient_service, "supabase", fake)
+
+    with pytest.raises(HTTPException) as exc:
+        service_call()
+
+    assert exc.value.status_code == 403
+    assert fake.calls == []
