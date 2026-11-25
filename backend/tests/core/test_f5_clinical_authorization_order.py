@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
@@ -287,7 +288,7 @@ def test_medical_history_projection_requires_context_and_does_not_overfetch(monk
         lambda: patient_service.get_patient_summary(PATIENT_ID, authorized_context=None),
         lambda: patient_service.get_patient_with_records(PATIENT_ID, authorized_context=None),
         lambda: patient_service.build_patient_timeline(
-            __import__("uuid").UUID(PATIENT_ID),
+            UUID(PATIENT_ID),
             authorized_context=None,
         ),
     ],
