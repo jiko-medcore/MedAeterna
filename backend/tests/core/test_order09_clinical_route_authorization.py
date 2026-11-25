@@ -335,9 +335,12 @@ def test_sensitive_routes_require_authentication(method, path, body):
     ],
 )
 def test_sensitive_routes_reject_invalid_token(monkeypatch, path):
+    class InvalidTokenError(Exception):
+        code = "bad_jwt"
+
     class InvalidAuth:
         def get_user(self, _token):
-            raise RuntimeError("synthetic invalid token")
+            raise InvalidTokenError("synthetic invalid token")
 
     # Prevent any hosted Auth call while proving fail-closed token validation.
     monkeypatch.setattr(
