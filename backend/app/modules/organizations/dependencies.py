@@ -56,7 +56,7 @@ def require_organization_member(
     imply authority to read or change organization configuration.
     """
     _require_organization_membership(current_user, organization_id)
-    return get_organization(organization_id=str(organization_id))
+    return {"organization_id": str(organization_id), "is_member": True}
 
 
 def require_organization_admin(
