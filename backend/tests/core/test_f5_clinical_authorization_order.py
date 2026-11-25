@@ -6,7 +6,9 @@ from uuid import UUID
 import pytest
 from fastapi import HTTPException
 
+from app.core import clinical_authorization
 from app.core.clinical_authorization import CLINICAL_RECORD
+from app.core.role_catalogue import PATIENT, PRACTITIONER
 from app.modules.laboratory import service as lab_service
 from app.modules.records import service as record_service
 from app.modules.patients import service as patient_service
@@ -302,3 +304,81 @@ def test_patient_record_services_deny_missing_context_before_query(monkeypatch, 
 
     assert exc.value.status_code == 403
     assert fake.calls == []
+
+
+
+def test_lab_result_policy_uses_lab_resource_family_and_keeps_consent_separate(monkeypatch):
+    practitioner = {
+        "id": "practitioner-user-1",
+        "roles": [{"category": PRACTITIONER, "organization_id": "org-1"}],
+    }
+    monkeypatch.setattr(
+        clinical_authorization.security,
+        "fetch_resource",
+        lambda *_args, **_kwargs: {
+            "id": LAB_ID,
+            "patient_id": PATIENT_ID,
+            "clinician_id": "practitioner-1",
+        },
+    )
+    relationship_calls = []
+
+    def fake_patient_access(_user, _patient_id, **kwargs):
+        relationship_calls.append(kwargs)
+        return {"authorized_organization_id": "org-1"}
+
+    monkeypatch.setattr(
+        clinical_authorization.security,
+        "authorize_patient_access",
+        fake_patient_access,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        clinical_authorization.authorize_table_access(
+            practitioner,
+            "lab_results",
+            LAB_ID,
+            "read",
+        )
+
+    assert relationship_calls[0]["resource_family"] == "lab_result"
+    assert "consent_if_required" in str(exc.value.detail)
+
+
+def test_patient_self_can_read_own_lab_result_with_verified_identity(monkeypatch):
+    patient = {
+        "id": PATIENT_ID,
+        "roles": [{"category": PATIENT, "organization_id": "org-1"}],
+    }
+    monkeypatch.setattr(
+        clinical_authorization.security,
+        "fetch_resource",
+        lambda *_args, **_kwargs: {
+            "id": LAB_ID,
+            "patient_id": PATIENT_ID,
+            "clinician_id": "practitioner-1",
+        },
+    )
+    relationship_calls = []
+
+    def fake_patient_access(_user, _patient_id, **kwargs):
+        relationship_calls.append(kwargs)
+        return {"authorized_patient_id": PATIENT_ID, "authorized_organization_id": "org-1"}
+
+    monkeypatch.setattr(
+        clinical_authorization.security,
+        "authorize_patient_access",
+        fake_patient_access,
+    )
+
+    context = clinical_authorization.authorize_table_access(
+        patient,
+        "lab_results",
+        LAB_ID,
+        "read",
+    )
+
+    assert relationship_calls[0]["resource_family"] == "lab_result"
+    assert context["authorized_patient_id"] == PATIENT_ID
+    assert context["authorized_resource_id"] == LAB_ID
+    assert context["authorized_action"] == "read"
