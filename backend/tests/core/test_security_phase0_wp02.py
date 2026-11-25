@@ -149,20 +149,23 @@ def test_patient_self_cannot_create_clinical_record(monkeypatch):
     assert exc.value.status_code == 403
 
 
-def test_practitioner_with_care_relationship_can_read(monkeypatch):
+def test_treatment_relationship_alone_does_not_claim_consent_or_authorize_clinical_read(monkeypatch):
     responses = _patient_row()
     responses.update(_practitioner_rows())
     responses.update(_care_team_row())
     monkeypatch.setattr(security, "supabase_admin", FakeSupabaseAdmin(responses))
-    context = clinical.authorize_clinical_access(
-        _practitioner_user(),
-        resource=clinical.CLINICAL_RECORD,
-        action="read",
-        patient_id="patient-1",
-        organization_id="org-1",
-        verified_conditions={"clinical_workflow"},
-    )
-    assert context["authorized_practitioner_id"] == "prac-1"
+    # SPEC-05 consent is a separate gate. An active treatment assignment must
+    # not be treated as proof that consent has been evaluated or granted.
+    with pytest.raises(HTTPException) as exc:
+        clinical.authorize_clinical_access(
+            _practitioner_user(),
+            resource=clinical.CLINICAL_RECORD,
+            action="read",
+            patient_id="patient-1",
+            organization_id="org-1",
+            verified_conditions={"clinical_workflow"},
+        )
+    assert exc.value.status_code == 403
 
 
 def test_practitioner_without_relationship_is_denied(monkeypatch):
