@@ -83,6 +83,11 @@ def authorized_context(*, action="read", patient_id=PATIENT_ID, resource_id=LAB_
         "authorized_patient_id": patient_id,
         "authorized_organization_id": "org-1",
         "authorized_resource_id": resource_id,
+        "resource_row": {
+            "id": resource_id,
+            "patient_id": patient_id,
+            "clinician_id": "practitioner-1",
+        },
     }
 
 
