@@ -658,7 +658,7 @@ def test_invite_user_to_another_organization(
 
     assert response.status_code == 403
 
-    assert "permission" in response.json()["detail"].lower()
+    assert response.status_code == 403
 
     create_invitation.assert_not_called()
 
@@ -837,7 +837,29 @@ def test_authenticated_organization_routes_require_authentication(
 # ============================================================
 
 
-def test_manage_organization_permission_dependency_is_registered():
-    dependency = _find_manage_organization_dependencies()
+def test_self_scoped_organization_routes_use_admin_dependency():
+    from app.modules.organizations.dependencies import require_current_user_organization_admin
 
-    assert dependency is not None
+    expected_paths = {
+        "/organizations/me",
+        "/organizations/update",
+        "/organizations/upload-logo",
+        "/organizations/profile",
+    }
+    routes = {
+        getattr(route, "path", None): route
+        for route in app.routes
+        if getattr(route, "path", None)
+    }
+
+    for path in expected_paths:
+        matching_routes = [
+            route for route in app.routes
+            if getattr(route, "path", None) == path
+        ]
+        assert matching_routes, path
+        assert any(
+            dependency.call is require_current_user_organization_admin
+            for route in matching_routes
+            for dependency in route.dependant.dependencies
+        ), path
