@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.core import clinical_authorization
-from app.core.clinical_authorization import CLINICAL_RECORD
+from app.core.clinical_authorization import CLINICAL_RECORD, TABLE_POLICY
 from app.core.role_catalogue import PATIENT, PRACTITIONER
 from app.modules.laboratory import service as lab_service
 from app.modules.records import service as record_service
@@ -452,3 +452,10 @@ def test_legacy_record_create_requires_organization_scope_before_insert(monkeypa
 
     assert exc.value.status_code == 403
     assert fake.calls == []
+
+
+
+def test_legacy_table_policies_use_only_persisted_scope_columns():
+    assert TABLE_POLICY["medical_records"]["columns"] == "id, patient_id, clinician_id, record_type"
+    assert TABLE_POLICY["lab_results"]["columns"] == "id, patient_id, clinician_id"
+    assert TABLE_POLICY["lab_results"]["relationship_resource_family"] == "lab_result"
