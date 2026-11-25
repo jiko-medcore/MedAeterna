@@ -253,7 +253,7 @@ def authorize_clinical_access(
             current_user,
             str(patient_id),
             organization_id=organization_id,
-            resource_family="clinical_history",
+            resource_family=relationship_resource_family,
             action=action,
         )
         # Treatment relationship is verified above. Consent is a separate SPEC-05
