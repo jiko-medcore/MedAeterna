@@ -478,9 +478,6 @@ def test_assign_role_success(
 ):
 
 
-    _override_manage_organization_permission(
-        _allow_manage_organization
-    )
 
     assign_role = mocker.patch.object(
         router,
@@ -518,9 +515,6 @@ def test_assign_role_organization_mismatch(
 ):
 
 
-    _override_manage_organization_permission(
-        _allow_manage_organization
-    )
 
     assign_role = mocker.patch.object(
         router,
@@ -577,9 +571,6 @@ def test_assign_role_invalid_payload(
 ):
 
 
-    _override_manage_organization_permission(
-        _allow_manage_organization
-    )
 
     response = authenticated_client.post(
         f"/organizations/{ORGANIZATION_ID}/assign-role",
@@ -605,9 +596,6 @@ def test_invite_user_success(
 ):
 
 
-    _override_manage_organization_permission(
-        _allow_manage_organization
-    )
 
     mock_create_invitation = mocker.patch.object(
         router,
@@ -710,9 +698,6 @@ def test_invite_user_invalid_payload(
 ):
 
 
-    _override_manage_organization_permission(
-        _allow_manage_organization
-    )
 
     response = authenticated_client.post(
         f"/organizations/{ORGANIZATION_ID}/invite",
