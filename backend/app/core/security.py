@@ -40,38 +40,38 @@ def _require_authenticated(credentials: HTTPAuthorizationCredentials | None) -> 
     return credentials.credentials
 
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-) -> dict[str, Any]:
-    """Validate a bearer token and resolve trusted identity/role context.
+def _is_invalid_access_token_error(exc: Exception) -> bool:
+    """Return True only for Supabase Auth errors that identify bad user credentials.
 
-    Token validation uses Supabase Auth. Role resolution uses the trusted
-    service-role client after authentication for identity bootstrapping and is
-    fail-closed when role state cannot be established.
+    Auth infrastructure failures (5xx, rate limits, transport failures, and
+    unexpected client errors) must not be misreported as invalid credentials.
+    The SDK exposes stable error codes; class names are retained as a
+    compatibility fallback for locally raised auth errors.
     """
-    from app.core.supabase_client import supabase
+    code = str(getattr(exc, "code", "") or "").casefold()
+    error_name = type(exc).__name__
+    invalid_codes = {
+        "bad_jwt",
+        "invalid_credentials",
+        "session_expired",
+        "session_not_found",
+        "user_not_found",
+    }
+    invalid_error_names = {
+        "AuthInvalidJwtError",
+        "AuthInvalidCredentialsError",
+        "AuthSessionMissingError",
+        "UserDoesNotExistError",
+    }
+    return code in invalid_codes or error_name in invalid_error_names
 
-    token = _require_authenticated(credentials)
 
-    try:
-        response = supabase.auth.get_user(token)
-        user = getattr(response, "user", None)
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        )
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication failed",
-        )
-
+def _load_active_role_context(user_id: str) -> tuple[list[dict[str, Any]], list[str]]:
+    """Load and normalize active role assignments using the trusted backend client."""
     role_rows = (
         supabase_admin.table("user_roles")
         .select("organization_id, role_id, status")
-        .eq("user_id", user.id)
+        .eq("user_id", str(user_id))
         .eq("status", "active")
         .execute()
     ).data or []
@@ -79,7 +79,7 @@ def get_current_user(
     if not role_rows:
         _deny("User has no assigned roles")
 
-    role_ids = list({row["role_id"] for row in role_rows if row.get("role_id")})
+    role_ids = sorted({str(row["role_id"]) for row in role_rows if row.get("role_id")})
     if not role_ids:
         _deny("User has no assigned roles")
 
@@ -89,31 +89,98 @@ def get_current_user(
         .in_("id", role_ids)
         .execute()
     ).data or []
-    role_lookup = {role["id"]: role for role in role_lookup_rows}
+    role_lookup = {str(role["id"]): role for role in role_lookup_rows if role.get("id")}
 
     roles: list[dict[str, Any]] = []
     organization_ids: set[str] = set()
 
     for assignment in role_rows:
-        role_info = role_lookup.get(assignment.get("role_id"))
+        role_info = role_lookup.get(str(assignment.get("role_id") or ""))
         if not role_info:
+            # A dangling role reference is not authority. Other valid assignments
+            # may still establish the user's recognized authorization context.
             continue
-        role_assignment = normalize_role_assignment(
-            role_name=role_info["name"],
+
+        normalized = normalize_role_assignment(
+            role_name=role_info.get("name") or "",
             role_type=role_info.get("role_type"),
             organization_id=assignment.get("organization_id"),
             role_organization_id=role_info.get("organization_id"),
             role_is_active=role_info.get("is_active"),
         )
-        roles.append(role_assignment)
+        roles.append(normalized)
+
         if (
-            role_assignment["category"] in {PRACTITIONER, ORGANIZATION_ADMINISTRATOR}
+            normalized["category"] in {PRACTITIONER, ORGANIZATION_ADMINISTRATOR}
             and assignment.get("organization_id")
         ):
             organization_ids.add(str(assignment["organization_id"]))
 
-    if not roles:
-        _deny("No valid roles found for user")
+    recognized_categories = {
+        PATIENT,
+        PRACTITIONER,
+        ORGANIZATION_ADMINISTRATOR,
+        SYSTEM_ADMINISTRATOR,
+    }
+    if not any(role.get("category") in recognized_categories for role in roles):
+        _deny("User has no recognized active role assignments")
+
+    return roles, sorted(organization_ids)
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+) -> dict[str, Any]:
+    """Validate a bearer token and resolve trusted identity/role context.
+
+    Supabase Auth establishes the user identity. The trusted service-role client
+    then resolves active role assignments and active role definitions. Auth
+    verification and role-resolution failures are intentionally distinguished:
+    invalid user credentials return 401, while an unavailable trust dependency
+    returns 503 and never produces a partially authorized user context.
+    """
+    from app.core.supabase_client import supabase
+
+    token = _require_authenticated(credentials)
+
+    try:
+        response = supabase.auth.get_user(token)
+        user = getattr(response, "user", None)
+    except Exception as exc:
+        if _is_invalid_access_token_error(exc):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+            ) from exc
+        logger.error(
+            "Supabase Auth verification unavailable (%s)",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service temporarily unavailable",
+        ) from exc
+
+    user_id = getattr(user, "id", None) if user else None
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed",
+        )
+
+    try:
+        roles, organization_ids = _load_active_role_context(str(user_id))
+    except AuthorizationError:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Trusted role resolution unavailable (%s)",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authorization context temporarily unavailable",
+        ) from exc
 
     legacy_role = (
         roles[0]["name"]
@@ -122,15 +189,18 @@ def get_current_user(
     )
 
     return {
-        "id": str(user.id),
+        "id": str(user_id),
         "email": getattr(user, "email", None),
         "role": legacy_role,
         "roles": roles,
-        "organization_ids": sorted(organization_ids),
+        "organization_ids": organization_ids,
         "is_patient": has_scoped_category(roles, PATIENT),
-        "is_practitioner": any(r.get("category") == PRACTITIONER for r in roles),
+        "is_practitioner": has_scoped_category(roles, PRACTITIONER)
+        or any(role.get("category") == PRACTITIONER for role in roles),
         "is_admin": has_scoped_category(roles, SYSTEM_ADMINISTRATOR),
-        "is_org_admin": any(r.get("category") == ORGANIZATION_ADMINISTRATOR for r in roles),
+        "is_org_admin": any(
+            role.get("category") == ORGANIZATION_ADMINISTRATOR for role in roles
+        ),
         "is_super_admin": has_scoped_category(roles, SYSTEM_ADMINISTRATOR),
     }
 
