@@ -55,6 +55,11 @@ def resolve_condition_record(
     authorized_context: dict,
 ) -> dict:
     """Resolve a stored condition after resource-id and patient scope authorization."""
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="update",
+    )
     patient_id = str(authorized_context.get("authorized_patient_id") or "")
     ensure_authorized_context(
         authorized_context,
