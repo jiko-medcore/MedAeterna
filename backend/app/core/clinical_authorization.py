@@ -65,6 +65,20 @@ TABLE_POLICY: dict[str, dict[str, Any]] = {
         "columns": "id, patient_id, organization_id",
         "resource": CARE_TEAM,
     },
+    # Legacy clinical-history rows do not carry organization_id; organization
+    # scope is resolved from the persisted patient row by the authorization path.
+    "medical_records": {
+        "columns": "id, patient_id, clinician_id, record_type",
+        "resource": CLINICAL_RECORD,
+        "relationship_resource_family": "clinical_history",
+    },
+    # Lab results have patient and clinician references but no organization or
+    # order/specimen foreign key in the current schema. Read scope is patient-bound.
+    "lab_results": {
+        "columns": "id, patient_id, clinician_id",
+        "resource": CLINICAL_RECORD,
+        "relationship_resource_family": "lab_result",
+    },
 }
 
 
@@ -176,6 +190,7 @@ def authorize_clinical_access(
     verified_conditions: Iterable[str] = (),
     allow_organization_admin: bool = False,
     organization_care_authority: bool = False,
+    relationship_resource_family: str = "clinical_history",
 ) -> dict[str, Any]:
     """Authorize one role/action against a verified patient-scoped resource.
 
@@ -210,7 +225,7 @@ def authorize_clinical_access(
             str(patient_id),
             organization_id=organization_id,
             allow_practitioner=False,
-            resource_family="clinical_history",
+            resource_family=relationship_resource_family,
             action=action,
         )
         checked.update({"subject_is_actor", "permitted_resource_scope"})
@@ -326,6 +341,7 @@ def authorize_table_access(
     action: str,
     *,
     verified_conditions: Iterable[str] = (),
+    relationship_resource_family: str | None = None,
 ) -> dict[str, Any]:
     """Load a stored resource and authorize an action against its own context."""
     policy = TABLE_POLICY.get(table)
@@ -383,6 +399,10 @@ def authorize_table_access(
         verified_conditions=checked,
         allow_organization_admin=resource == CARE_TEAM,
         organization_care_authority="organization_care_authority" in checked,
+        relationship_resource_family=(
+            relationship_resource_family
+            or policy.get("relationship_resource_family", "clinical_history")
+        ),
     )
     return {
         **context,
