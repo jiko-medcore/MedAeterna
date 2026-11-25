@@ -162,7 +162,7 @@ def test_require_organization_member_returns_organization(
     assert result is organization
 
     get_organization.assert_called_once_with(
-        organization_id=ORGANIZATION_ID,
+        organization_id=str(ORGANIZATION_ID),
     )
 
 
@@ -172,7 +172,7 @@ def test_require_organization_member_raises_not_found(
     mocker.patch.object(
         dependencies,
         "get_organization",
-        return_value=None,
+        side_effect=OrganizationNotFoundError(),
     )
 
     current_user = user_factory(
