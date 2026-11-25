@@ -15,8 +15,10 @@ from app.modules.terminology.constants import CODE_SYSTEMS
 router = APIRouter(prefix="/records", tags=["Medical Records"])
 
 
-def _authorize_record_write(current_user: dict, patient_id: str, permission_name: str) -> dict:
-    authz = authorize_patient_access(current_user, str(patient_id))
+def _authorize_record_write(current_user: dict, patient_id: str, permission_name: str, resource_family: str) -> dict:
+    authz = authorize_patient_access(
+        current_user, str(patient_id), resource_family=resource_family, action="create"
+    )
     org_id = authz.get("authorized_organization_id")
     if not org_id:
         raise HTTPException(status_code=403, detail="Access denied")
@@ -28,7 +30,7 @@ def create_observation(
     payload: MedicalRecordCreate,
     current_user: dict = Depends(get_current_user),
 ):
-    current_user = _authorize_record_write(current_user, payload.patient_id, "create_observation")
+    current_user = _authorize_record_write(current_user, payload.patient_id, "create_observation", "observation")
     return create_record(payload, clinician_id=current_user["id"])
 
 
@@ -37,7 +39,7 @@ def create_condition(
     payload: MedicalRecordCreate,
     current_user: dict = Depends(get_current_user),
 ):
-    current_user = _authorize_record_write(current_user, payload.patient_id, "create_condition")
+    current_user = _authorize_record_write(current_user, payload.patient_id, "create_condition", "condition")
     return create_record(payload, clinician_id=current_user["id"])
 
 
@@ -46,7 +48,7 @@ def create_medication(
     payload: MedicationInput,
     current_user: dict = Depends(get_current_user),
 ):
-    current_user = _authorize_record_write(current_user, payload.patient_id, "create_medication")
+    current_user = _authorize_record_write(current_user, payload.patient_id, "create_medication", "prescription")
     fhir_medication = {
         "resourceType": "MedicationRequest",
         "status": "active",
@@ -92,7 +94,7 @@ def resolve_condition(
     if not rows:
         raise HTTPException(status_code=404, detail="Condition not found")
     patient_id = str(rows[0]["patient_id"])
-    current_user = _authorize_record_write(current_user, patient_id, "resolve_condition")
+    current_user = _authorize_record_write(current_user, patient_id, "resolve_condition", "condition")
     return resolve_condition_record(
         record_id,
         current_user,
