@@ -29,6 +29,16 @@ def create_record(data, *, authorized_context: dict):
         action="create",
         patient_id=patient_id,
     )
+    organization_id = str(authorized_context.get("authorized_organization_id") or "").strip()
+    if not organization_id:
+        raise HTTPException(status_code=403, detail="Clinical organization context required")
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="create",
+        patient_id=patient_id,
+        organization_id=organization_id,
+    )
     clinician_id = str(authorized_context["authorized_user_id"])
     clinical_data = data.clinical_data or {}
     if data.record_type == "condition":
@@ -66,6 +76,17 @@ def resolve_condition_record(
         resource=CLINICAL_RECORD,
         action="update",
         patient_id=patient_id,
+        resource_id=str(record_id),
+    )
+    organization_id = str(authorized_context.get("authorized_organization_id") or "").strip()
+    if not organization_id:
+        raise HTTPException(status_code=403, detail="Clinical organization context required")
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="update",
+        patient_id=patient_id,
+        organization_id=organization_id,
         resource_id=str(record_id),
     )
     resource_row = authorized_context.get("resource_row")
