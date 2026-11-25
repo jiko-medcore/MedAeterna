@@ -347,7 +347,7 @@ def test_lab_result_policy_uses_lab_resource_family_and_keeps_consent_separate(m
 def test_patient_self_can_read_own_lab_result_with_verified_identity(monkeypatch):
     patient = {
         "id": PATIENT_ID,
-        "roles": [{"category": PATIENT, "organization_id": "org-1"}],
+        "roles": [{"category": PATIENT, "organization_id": None}],
     }
     monkeypatch.setattr(
         clinical_authorization.security,
