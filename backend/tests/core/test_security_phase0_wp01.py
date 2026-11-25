@@ -269,7 +269,7 @@ def test_require_patient_access_manual_compatibility_builds_context(monkeypatch)
         ],
         ("patients", (("eq", "id", "patient-1"),)): [{"id": "patient-1", "organization_id": "org-1"}],
         ("practitioners", (("eq", "profile_id", "user-prac-1"),)): [{"id": "prac-1", "profile_id": "user-prac-1"}],
-        ("patient_care_team", (("eq", "organization_id", "org-1"), ("eq", "patient_id", "patient-1"), ("eq", "practitioner_id", "prac-1"), ("eq", "status", "active"))): [{"id": "ct-1"}],
+        ("patient_care_team", (("eq", "organization_id", "org-1"), ("eq", "patient_id", "patient-1"), ("eq", "practitioner_id", "prac-1"), ("eq", "status", "active"))): [_active_relationship_row()],
     }
     monkeypatch.setattr(security, "supabase_admin", FakeSupabaseAdmin(responses))
     assert security.require_patient_access_manual("patient-1", "user-prac-1") is True
