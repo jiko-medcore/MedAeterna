@@ -5,6 +5,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Up
 from fastapi.responses import StreamingResponse
 
 from app.core.clinical_authorization import authorize_patient_list_access
+from app.core.patient_avatar_access import (
+    create_signed_patient_avatar_url,
+    is_patient_avatar_object_path,
+)
 from app.core.security import authorize_patient_access, get_current_user, require_permission
 from app.core.storage_access_inventory import PATIENT_AVATARS_BUCKET
 from app.core.storage_upload_validation import (
@@ -23,7 +27,7 @@ from app.modules.patients.service import (
     get_patient_summary,
     get_patient_with_records,
     update_patient_info,
-    update_profile_image,
+    update_profile_image_path,
 )
 from app.shared.tasks.event_tasks import process_events_task
 from app.shared.utils.fhir import build_patient_bundle
@@ -163,6 +167,11 @@ async def upload_profile_picture(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     file_path = f"{current_user['id']}/avatar.{extension}"
+    if not is_patient_avatar_object_path(file_path, current_user["id"]):
+        raise HTTPException(status_code=400, detail="Invalid avatar object path")
+
+    bucket = None
+    uploaded = False
     try:
         bucket = supabase_admin.storage.from_(PATIENT_AVATARS_BUCKET)
         bucket.upload(
@@ -170,12 +179,25 @@ async def upload_profile_picture(
             file=file_bytes,
             file_options={"content-type": file.content_type, "upsert": "true"},
         )
-        public_url = bucket.get_public_url(file_path)
-        update_profile_image(current_user["id"], public_url)
+        uploaded = True
+
+        # The signed URL is returned to the caller only. The database receives
+        # the stable object path, never this ephemeral URL.
+        signed_url = create_signed_patient_avatar_url(
+            patient_id=str(current_user["id"]),
+            object_path=file_path,
+        )
+        update_profile_image_path(str(current_user["id"]), file_path)
         return {
             "message": "Profile image uploaded successfully",
-            "profile_image_url": public_url,
+            "profile_image_url": signed_url,
         }
     except Exception:
-        logger.exception("Avatar upload failed for patient %s", current_user.get("id"))
+        if uploaded and bucket is not None:
+            try:
+                bucket.remove([file_path])
+            except Exception:
+                # Do not log object paths, URLs, bytes, or exception details.
+                logger.error("Patient avatar compensation removal failed")
+        logger.error("Patient avatar upload failed")
         raise HTTPException(status_code=500, detail="Avatar upload failed")

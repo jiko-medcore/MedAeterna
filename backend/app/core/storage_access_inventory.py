@@ -11,9 +11,9 @@ and cannot be revoked by an application migration. Effective denial is provided
 by an explicit ``FOR ALL ... USING (false) WITH CHECK (false)`` policy for
 ``anon`` and ``authenticated``. Public retrieval is provided by the bucket's
 ``public`` flag and is unaffected by that policy. Every mutation goes through
-the trusted backend with the SPEC-10 service-role evidence. Private objects,
-when introduced, must be read through short-lived signed URLs issued by that
-same trusted path.
+the trusted backend with the SPEC-10 service-role evidence. Private objects are
+read through short-lived signed URLs issued by that same trusted path after the
+caller has been authorized.
 """
 
 from __future__ import annotations
@@ -120,24 +120,25 @@ STORAGE_BUCKET_INVENTORY: dict[str, BucketAccessRule] = {
     ),
     PATIENT_AVATARS_BUCKET: _bucket(
         PATIENT_AVATARS_BUCKET,
-        classification=BucketClass.PUBLIC_OWNED,
-        public=True,
+        classification=BucketClass.PRIVATE_OWNED,
+        public=False,
         owner_token="patient user id",
         object_path_pattern="<patient_id>/avatar.<ext>",
         note=(
-            "Public non-clinical profile image, consistent with the existing profile "
-            "URL contract. Writes require verified patient self-service evidence."
+            "Private profile image. Writes require verified patient self-service "
+            "evidence; authorized reads use short-lived signed URLs. The stable "
+            "object path is stored on patients.profile_image_path."
         ),
     ),
     PRACTITIONER_PHOTOS_BUCKET: _bucket(
         PRACTITIONER_PHOTOS_BUCKET,
-        classification=BucketClass.PUBLIC_OWNED,
-        public=True,
+        classification=BucketClass.PRIVATE_OWNED,
+        public=False,
         owner_token="practitioner id",
         object_path_pattern="<practitioner_id>/photo.<ext>",
         note=(
-            "Public directory photo. Installed with limits now; no backend upload "
-            "route exists yet, so a future route must use the trusted path."
+            "Private directory photo. Installed with limits now; upload remains "
+            "disabled pending a separate approved trusted workflow."
         ),
     ),
 }

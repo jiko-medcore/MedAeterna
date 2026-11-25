@@ -130,12 +130,12 @@ file_size_limit = "2MiB"
 allowed_mime_types = ["image/jpeg", "image/png", "image/webp"]
 
 [storage.buckets."patient-avatars"]
-public = true
+public = false
 file_size_limit = "2MiB"
 allowed_mime_types = ["image/jpeg", "image/png", "image/webp"]
 
 [storage.buckets."practitioner-photos"]
-public = true
+public = false
 file_size_limit = "2MiB"
 allowed_mime_types = ["image/jpeg", "image/png", "image/webp"]
 

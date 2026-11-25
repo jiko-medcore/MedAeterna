@@ -1,14 +1,14 @@
 -- SPEC-12 catalog checks. Run with: supabase test db
 BEGIN;
 
-SELECT plan(8);
+SELECT plan(9);
 
 -- 1. Every reviewed bucket exists with the exact public/size/MIME configuration.
 WITH spec12_expected_buckets (name, public, file_size_limit, allowed_mime_types) AS (
     VALUES
     ('organization-logos', true, 2097152, ARRAY['image/jpeg', 'image/png', 'image/webp']::text[]),
-    ('patient-avatars', true, 2097152, ARRAY['image/jpeg', 'image/png', 'image/webp']::text[]),
-    ('practitioner-photos', true, 2097152, ARRAY['image/jpeg', 'image/png', 'image/webp']::text[])
+    ('patient-avatars', false, 2097152, ARRAY['image/jpeg', 'image/png', 'image/webp']::text[]),
+    ('practitioner-photos', false, 2097152, ARRAY['image/jpeg', 'image/png', 'image/webp']::text[])
 )
 SELECT ok(
     NOT EXISTS (
@@ -109,6 +109,15 @@ SELECT ok(
         WHERE version = '20261120110644'
     ),
     'SPEC-12 migration is recorded'
+);
+
+-- 9. The forward-only private-avatar cutover migration is recorded.
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM supabase_migrations.schema_migrations
+        WHERE version = '20261124192523'
+    ),
+    'private patient-avatar storage migration is recorded'
 );
 
 SELECT finish();

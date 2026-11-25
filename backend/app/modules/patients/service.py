@@ -1,6 +1,11 @@
 from fastapi import HTTPException
 
 from app.core.clinical_authorization import PATIENT_LIST, ensure_authorized_context
+from app.core.patient_avatar_access import (
+    is_patient_avatar_object_path,
+    with_private_avatar_url,
+    with_private_avatar_urls,
+)
 from app.core.supabase_client import supabase
 from app.core.supabase_admin import supabase_admin
 from app.shared.utils.timeline_event_trans_helper import transform_record_to_event
@@ -27,14 +32,17 @@ logger = logging.getLogger(__name__)
 # full patient row or the full clinical record row.
 PATIENT_PROFILE_SELECT = (
     "id, first_name, last_name, middle_name, date_of_birth, gender, blood_group, "
-    "phone, profile_image_url, emergency_contact_name, emergency_contact_phone, "
-    "organization_id, medical_id"
+    "phone, profile_image_path, profile_image_url, emergency_contact_name, "
+    "emergency_contact_phone, organization_id, medical_id"
 )
 PATIENT_EXPORT_SELECT = "id, fhir_metadata"
 PATIENT_SUMMARY_SELECT = "id, first_name, last_name, gender, date_of_birth"
 PATIENT_RECORD_SUMMARY_SELECT = "id, created_at, record_type, clinical_data"
 PATIENT_TIMELINE_SELECT = "id, created_at, record_type, clinical_data"
-PATIENT_LIST_SELECT = "id, medical_id, first_name, last_name, date_of_birth, gender, profile_image_url"
+PATIENT_LIST_SELECT = (
+    "id, medical_id, first_name, last_name, date_of_birth, gender, "
+    "profile_image_path, profile_image_url"
+)
 
 
 # ----- Get Patient Summary -----
@@ -173,7 +181,7 @@ def get_or_create_patient(
 
     if response.data:
         return {
-            "patient": response.data[0],
+            "patient": with_private_avatar_url(response.data[0]),
             "created": False
         }
 
@@ -249,7 +257,7 @@ def get_or_create_patient(
     )
 
     return {
-        "patient": patient,
+        "patient": with_private_avatar_url(patient),
         "created": True
     }
 
@@ -393,7 +401,7 @@ def get_my_patients(*, authorized_context: Dict[str, Any]):
     if not patient_ids:
         return []
 
-    return (
+    patients = (
         supabase_admin
         .table("patients")
         .select(PATIENT_LIST_SELECT)
@@ -403,6 +411,7 @@ def get_my_patients(*, authorized_context: Dict[str, Any]):
         .data
         or []
     )
+    return with_private_avatar_urls(patients)
 
 
 # ---- Get Patient Profile ----
@@ -422,7 +431,7 @@ def get_patient_profile(patient_id: str) -> Dict[str, Any]:
 
     patient = response.data[0]
 
-    return {
+    return with_private_avatar_url({
         "id": patient.get("id"),
         "full_name": f"{patient.get('first_name','')} {patient.get('last_name','')}",
         "first_name": patient.get("first_name"),
@@ -431,12 +440,13 @@ def get_patient_profile(patient_id: str) -> Dict[str, Any]:
         "gender": patient.get("gender"),
         "date_of_birth": patient.get("date_of_birth"),
         "phone": patient.get("phone"),
+        "profile_image_path": patient.get("profile_image_path"),
         "profile_image_url": patient.get("profile_image_url"),
         "emergency_contact": {
             "name": patient.get("emergency_contact_name"),
             "phone": patient.get("emergency_contact_phone")
         }
-    }
+    })
 
 
 # ---- Update Patient Info ----
@@ -458,11 +468,18 @@ def update_patient_info(patient_id: str, payload: dict):
 
 
 # ---- Update Patient Profile Image ----
-def update_profile_image(patient_id: str, image_url: str) -> Dict[str, Any]:
+def update_profile_image_path(patient_id: str, object_path: str) -> Dict[str, Any]:
+    """Persist only the stable private object path, never a signed URL."""
+    if not is_patient_avatar_object_path(object_path, patient_id):
+        raise PatientUpdateError("Invalid patient avatar object path")
+
     response = (
         supabase_admin
         .table("patients")
-        .update({"profile_image_url": image_url})
+        .update({
+            "profile_image_path": object_path,
+            "profile_image_url": None,
+        })
         .eq("id", patient_id)
         .execute()
     )

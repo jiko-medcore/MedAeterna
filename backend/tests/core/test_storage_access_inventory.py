@@ -1,5 +1,9 @@
+import tomllib
+from pathlib import Path
+
 from app.core.database_execution_policy import ExecutionMode
 from app.core.storage_access_inventory import (
+    BucketClass,
     IMAGE_SIGNATURES,
     MAX_IMAGE_SIZE_BYTES,
     PLANNED_BUCKETS,
@@ -18,6 +22,16 @@ EXPECTED_BUCKETS = {
     "organization-logos",
     "patient-avatars",
     "practitioner-photos",
+}
+EXPECTED_PUBLIC_FLAGS = {
+    "organization-logos": True,
+    "patient-avatars": False,
+    "practitioner-photos": False,
+}
+EXPECTED_CLASSIFICATIONS = {
+    "organization-logos": BucketClass.PUBLIC_OWNED,
+    "patient-avatars": BucketClass.PRIVATE_OWNED,
+    "practitioner-photos": BucketClass.PRIVATE_OWNED,
 }
 
 
@@ -42,8 +56,27 @@ def test_every_bucket_has_reviewed_limits_and_owner_path():
         assert rule.execution_mode is ExecutionMode.SERVICE_ROLE
 
 
-def test_public_flags_are_explicit():
-    assert all(rule.public is True for rule in STORAGE_BUCKET_INVENTORY.values())
+def test_public_flags_and_classifications_match_approved_policy():
+    assert {
+        name: rule.public for name, rule in STORAGE_BUCKET_INVENTORY.items()
+    } == EXPECTED_PUBLIC_FLAGS
+    assert {
+        name: rule.classification for name, rule in STORAGE_BUCKET_INVENTORY.items()
+    } == EXPECTED_CLASSIFICATIONS
+
+
+def test_local_storage_config_matches_inventory():
+    config_path = Path(__file__).resolve().parents[2] / "supabase" / "config.toml"
+    config = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    buckets = config["storage"]["buckets"]
+
+    assert set(buckets) == EXPECTED_BUCKETS
+    for name, rule in STORAGE_BUCKET_INVENTORY.items():
+        assert buckets[name]["public"] is rule.public
+        assert buckets[name]["file_size_limit"] == "2MiB"
+        assert set(buckets[name]["allowed_mime_types"]) == set(
+            rule.allowed_mime_types
+        )
 
 
 def test_explicit_deny_policy_is_the_only_client_object_policy():
