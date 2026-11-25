@@ -277,7 +277,7 @@ def test_require_patient_access_manual_compatibility_builds_context(monkeypatch)
 
 
 
-@pytest.mark.parametrize("status_value", [400, 401, 403])
+@pytest.mark.parametrize("status_value", [400, 401])
 def test_invalid_token_code_with_client_error_status_is_401(status_value):
     exc = RuntimeError("auth failure")
     exc.code = "bad_jwt"
@@ -285,7 +285,7 @@ def test_invalid_token_code_with_client_error_status_is_401(status_value):
     assert security._is_invalid_access_token_error(exc) is True
 
 
-@pytest.mark.parametrize("status_value", [None, 429, 500, 503])
+@pytest.mark.parametrize("status_value", [None, 403, 429, 500, 503])
 def test_credential_like_error_code_with_infrastructure_status_is_not_401(status_value):
     exc = RuntimeError("auth infrastructure failure")
     exc.code = "bad_jwt"
