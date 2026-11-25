@@ -21,7 +21,8 @@ This branch starts from PR #48's merge commit so it carries those changes forwar
 
 Current schema evidence from `backend/sql/Records/records.sql`:
 - `id`, `patient_id`, `clinician_id`, `record_type`, `recorded_at`, `clinical_data`, `created_at`, `updated_by`, `updated_at`.
-- No `organization_id` column. Organization scope must be resolved from the persisted patient row; do not add or assume an organization field on this legacy table without a separate schema decision/migration.
+- No `organization_id`, `facility_name`, `provider_name`, or `summary` columns in the reviewed migration schema. Organization scope must be resolved from the persisted patient row; do not add or assume an organization field on this legacy table without a separate schema decision/migration.
+- The history projection is therefore restricted to the persisted `id, created_at, record_type` columns. Existing presentation keys for facility/provider/description remain empty until a separately approved data-model change supplies those fields.
 
 Callers and operations:
 - `POST /records/observations` — legacy clinical-record create.
