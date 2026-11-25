@@ -243,7 +243,11 @@ def _care_team_rows(patient_id="patient-1", practitioner_id="prac-1", org="org-1
             practitioner_id=practitioner_id,
             organization_id=org,
             status="active",
-        ): [{"id": "ct-link-1"}]
+        ): [{
+            "id": "ct-link-1", "patient_id": patient_id,
+            "practitioner_id": practitioner_id, "organization_id": org,
+            "status": "active", "start_date": None, "end_date": None,
+        }]
     }
 
 
