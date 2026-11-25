@@ -1,6 +1,8 @@
 import pytest
 from fastapi import HTTPException
 
+from app.modules.appointments import service as appointment_service
+
 from app.core import security
 from app.core.clinical_authorization import (
     APPOINTMENT,
@@ -162,3 +164,75 @@ def test_service_context_rejects_scope_mismatch(field, expected, kwargs):
         )
 
     assert exc.value.status_code == 403
+
+
+
+class RecordingQuery:
+    def __init__(self):
+        self.filters = []
+        self.selected = None
+
+    def select(self, columns):
+        self.selected = columns
+        return self
+
+    def eq(self, column, value):
+        self.filters.append((column, value))
+        return self
+
+    def order(self, *_args, **_kwargs):
+        return self
+
+    def execute(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(data=[])
+
+
+class RecordingAdmin:
+    def __init__(self):
+        self.query = RecordingQuery()
+        self.tables = []
+
+    def table(self, name):
+        self.tables.append(name)
+        return self.query
+
+
+def test_practitioner_schedule_service_requires_organization_before_query(monkeypatch):
+    admin = RecordingAdmin()
+    monkeypatch.setattr(appointment_service, "supabase_admin", admin)
+
+    with pytest.raises(HTTPException) as exc:
+        appointment_service.get_practitioner_appointments(
+            "prac-1",
+            authorized_context={
+                "authorized_user_id": "user-1",
+                "authorized_practitioner_id": "prac-1",
+                "authorized_resource": APPOINTMENT,
+                "authorized_action": "read",
+            },
+        )
+
+    assert exc.value.status_code == 403
+    assert admin.tables == []
+
+
+def test_practitioner_schedule_service_filters_exact_authorized_organization(monkeypatch):
+    admin = RecordingAdmin()
+    monkeypatch.setattr(appointment_service, "supabase_admin", admin)
+
+    appointment_service.get_practitioner_appointments(
+        "prac-1",
+        authorized_context={
+            "authorized_user_id": "user-1",
+            "authorized_practitioner_id": "prac-1",
+            "authorized_organization_id": "org-1",
+            "authorized_resource": APPOINTMENT,
+            "authorized_action": "read",
+        },
+    )
+
+    assert admin.tables == ["appointments"]
+    assert ("practitioner_id", "prac-1") in admin.query.filters
+    assert ("organization_id", "org-1") in admin.query.filters
