@@ -47,19 +47,14 @@ PATIENT_LIST_SELECT = (
 
 # ----- Get Patient Summary -----
 def get_patient_summary(patient_id: str, *, authorized_context: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate a summary of the authorized patient's health data."""
     ensure_authorized_context(
         authorized_context,
         resource=CLINICAL_RECORD,
         action="read",
         patient_id=str(patient_id),
     )
-    """
-    Generate a summary of the patient's health data including 
-    vitals, conditions, and medications.  
 
-    input: patient_id (str) - unique identifier for the patient
-    return: dict - summary of patient's health data
-    """
     # ---- Fetch patient ----
     patient_resp = (
         supabase
@@ -299,18 +294,13 @@ def get_patient_with_records(patient_id: str, *, authorized_context: Dict[str, A
 
 # ----- Transform Record to Timeline Event -----
 def build_patient_timeline(patient_id: UUID, *, authorized_context: Dict[str, Any]):
+    """Build a chronological timeline of the authorized patient's medical events."""
     ensure_authorized_context(
         authorized_context,
         resource=CLINICAL_RECORD,
         action="read",
         patient_id=str(patient_id),
     )
-    """
-    Build a chronological timeline of a patient's medical events.
-    
-    input: patient_id (UUID) - unique identifier for the patient
-    return: dict - timeline of medical events
-    """
     response = (
         supabase
         .table("medical_records")
