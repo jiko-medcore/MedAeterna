@@ -37,6 +37,13 @@ def build_lab_detail(lab_id: str, *, authorized_context: dict) -> dict:
         patient_id=patient_id,
         resource_id=str(lab_id),
     )
+    resource_row = authorized_context.get("resource_row")
+    if (
+        not isinstance(resource_row, dict)
+        or str(resource_row.get("id") or "") != str(lab_id)
+        or str(resource_row.get("patient_id") or "") != patient_id
+    ):
+        raise HTTPException(status_code=403, detail="Lab result authorization context mismatch")
 
     lab = fetch_lab_detail(str(lab_id), patient_id)
     if not lab:
