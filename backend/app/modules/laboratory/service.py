@@ -24,6 +24,11 @@ def fetch_lab_detail(lab_id: str, patient_id: str) -> dict | None:
 
 def build_lab_detail(lab_id: str, *, authorized_context: dict) -> dict:
     """Build a lab response only after route authorization of its stored scope."""
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="read",
+    )
     patient_id = str(authorized_context.get("authorized_patient_id") or "")
     ensure_authorized_context(
         authorized_context,
