@@ -1,9 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from app.core.security import require_patient_access
-from app.core.supabase_client import supabase
+from app.core.clinical_authorization import CLINICAL_RECORD, ensure_authorized_context
+from app.core.supabase_admin import supabase_admin
 
 
 def normalize_condition_on_create(data: dict) -> dict:
@@ -20,16 +20,25 @@ def normalize_condition_on_create(data: dict) -> dict:
     return data
 
 
-def create_record(data, clinician_id: str):
+def create_record(data, *, authorized_context: dict):
+    """Create a legacy medical_records row only with a route-issued decision."""
+    patient_id = str(data.patient_id)
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="create",
+        patient_id=patient_id,
+    )
+    clinician_id = str(authorized_context["authorized_user_id"])
     clinical_data = data.clinical_data or {}
     if data.record_type == "condition":
         clinical_data = normalize_condition_on_create(clinical_data)
 
     response = (
-        supabase.table("medical_records")
+        supabase_admin.table("medical_records")
         .insert(
             {
-                "patient_id": str(data.patient_id),
+                "patient_id": patient_id,
                 "clinician_id": clinician_id,
                 "record_type": data.record_type,
                 "clinical_data": clinical_data,
@@ -42,37 +51,32 @@ def create_record(data, clinician_id: str):
 
 def resolve_condition_record(
     record_id: str,
-    current_user: dict,
     *,
-    patient_id: str | None = None,
+    authorized_context: dict,
 ) -> dict:
-    """Authorize the patient before loading clinical data for resolution.
-
-    ``patient_id`` may be supplied by a router that already performed a minimal
-    scope-resolution read and its own permission check. It is reauthorized here
-    before the clinical record is fetched, so callers cannot bypass the patient
-    access contract by supplying an arbitrary id.
-    """
-    if patient_id is None:
-        scope = (
-            supabase.table("medical_records")
-            .select("id, patient_id")
-            .eq("id", record_id)
-            .eq("record_type", "condition")
-            .limit(1)
-            .execute()
-        ).data or []
-        if not scope:
-            raise HTTPException(status_code=404, detail="Condition not found")
-        patient_id = str(scope[0]["patient_id"])
-
-    require_patient_access(patient_id, current_user)
+    """Resolve a stored condition after resource-id and patient scope authorization."""
+    patient_id = str(authorized_context.get("authorized_patient_id") or "")
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="update",
+        patient_id=patient_id,
+        resource_id=str(record_id),
+    )
+    resource_row = authorized_context.get("resource_row")
+    if (
+        not isinstance(resource_row, dict)
+        or str(resource_row.get("id") or "") != str(record_id)
+        or str(resource_row.get("patient_id") or "") != patient_id
+        or resource_row.get("record_type") != "condition"
+    ):
+        raise HTTPException(status_code=403, detail="Condition authorization context mismatch")
 
     records = (
-        supabase.table("medical_records")
+        supabase_admin.table("medical_records")
         .select("id, patient_id, clinical_data")
-        .eq("id", record_id)
-        .eq("patient_id", str(patient_id))
+        .eq("id", str(record_id))
+        .eq("patient_id", patient_id)
         .eq("record_type", "condition")
         .limit(1)
         .execute()
@@ -91,13 +95,13 @@ def resolve_condition_record(
             "display": "Resolved",
         }
     ]
-    data["abatementDateTime"] = datetime.now().isoformat()
+    data["abatementDateTime"] = datetime.now(timezone.utc).isoformat()
 
     update = (
-        supabase.table("medical_records")
-        .update({"clinical_data": data})
-        .eq("id", record_id)
-        .eq("patient_id", str(patient_id))
+        supabase_admin.table("medical_records")
+        .update({"clinical_data": data, "updated_by": authorized_context["authorized_user_id"]})
+        .eq("id", str(record_id))
+        .eq("patient_id", patient_id)
         .eq("record_type", "condition")
         .execute()
     )
@@ -106,14 +110,22 @@ def resolve_condition_record(
     return update.data[0]
 
 
-def fetch_medical_records(patient_id: str):
-    # Medical history formats only these fields; do not overfetch clinical rows.
+def fetch_medical_records(
+    patient_id: str,
+    *,
+    authorized_context: dict,
+):
+    """Return the minimal history projection after explicit patient-read authorization."""
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
     response = (
-        supabase.table("medical_records")
-        .select(
-            "id, created_at, facility_name, provider_name, record_type, summary"
-        )
-        .eq("patient_id", patient_id)
+        supabase_admin.table("medical_records")
+        .select("id, created_at, facility_name, provider_name, record_type, summary")
+        .eq("patient_id", str(patient_id))
         .execute()
     )
     return response.data or []
