@@ -10,6 +10,7 @@ from app.modules.organizations.dependencies import (
     require_organization_access,
     require_organization_admin,
     require_organization_admin_for_org_id,
+    require_current_user_organization_admin,
 )
 
 from tests.factories.user import (
@@ -62,6 +63,10 @@ def authenticated_client(current_user):
 
     app.dependency_overrides[
         require_organization_access
+    ] = lambda: fake_org
+
+    app.dependency_overrides[
+        require_current_user_organization_admin
     ] = lambda: fake_org
 
     app.dependency_overrides[
