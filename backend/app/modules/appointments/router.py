@@ -6,6 +6,7 @@ from app.core.clinical_authorization import (
     authorize_clinical_access,
     authorize_practitioner_schedule_access,
     authorize_table_access,
+    practitioner_actor_id,
     resolve_practitioner_organization_id,
     require_patient_clinical,
 )
