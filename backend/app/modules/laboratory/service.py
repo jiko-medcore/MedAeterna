@@ -1,33 +1,20 @@
 from fastapi import HTTPException
 
-from app.core.security import require_patient_access
+from app.core.clinical_authorization import CLINICAL_RECORD, ensure_authorized_context
 from app.core.supabase_admin import supabase_admin
 
-LAB_SCOPE_SELECT = "id, patient_id"
 LAB_DETAIL_SELECT = (
     "id, patient_id, status, result_data, performed_at, created_at, clinician_id"
 )
 
 
-def fetch_lab_scope(lab_id: str) -> dict | None:
-    """Fetch only the ownership field needed to authorize a lab detail read."""
-    response = (
-        supabase_admin.table("lab_results")
-        .select(LAB_SCOPE_SELECT)
-        .eq("id", lab_id)
-        .limit(1)
-        .execute()
-    )
-    rows = response.data or []
-    return rows[0] if rows else None
-
-
-def fetch_lab_detail(lab_id: str) -> dict | None:
-    """Fetch only approved display fields after patient access is authorized."""
+def fetch_lab_detail(lab_id: str, patient_id: str) -> dict | None:
+    """Fetch reviewed display fields for the exact authorized patient/result pair."""
     response = (
         supabase_admin.table("lab_results")
         .select(LAB_DETAIL_SELECT)
-        .eq("id", lab_id)
+        .eq("id", str(lab_id))
+        .eq("patient_id", str(patient_id))
         .limit(1)
         .execute()
     )
@@ -35,24 +22,23 @@ def fetch_lab_detail(lab_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def build_lab_detail(lab_id: str, current_user: dict) -> dict:
-    scope = fetch_lab_scope(lab_id)
-    if not scope:
-        raise HTTPException(status_code=404, detail="Lab result not found")
+def build_lab_detail(lab_id: str, *, authorized_context: dict) -> dict:
+    """Build a lab response only after route authorization of its stored scope."""
+    patient_id = str(authorized_context.get("authorized_patient_id") or "")
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=patient_id,
+        resource_id=str(lab_id),
+    )
 
-    patient_id = scope.get("patient_id")
-    if not patient_id:
-        raise HTTPException(status_code=403, detail="Access denied")
-    require_patient_access(str(patient_id), current_user)
-
-    lab = fetch_lab_detail(lab_id)
+    lab = fetch_lab_detail(str(lab_id), patient_id)
     if not lab:
         raise HTTPException(status_code=404, detail="Lab result not found")
 
-    # No `raw` full-row projection: only reviewed clinical/display fields leave
-    # this service, and only after the patient-access check above.
-    # These are the reviewed display columns from the canonical lab_results
-    # relation. No full-row/`raw` projection is returned.
+    # No full-row projection is returned. The detail query is constrained to
+    # both the authorized resource id and the patient id resolved before auth.
     return {
         "id": lab.get("id"),
         "patient_id": lab.get("patient_id"),
