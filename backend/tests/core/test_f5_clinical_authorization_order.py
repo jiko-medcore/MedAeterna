@@ -278,8 +278,7 @@ def test_medical_history_projection_requires_context_and_does_not_overfetch(monk
 
     assert len(fake.calls) == 1
     columns = fake.calls[0]["columns"]
-    assert "*" not in columns
-    assert "clinical_data" not in columns
+    assert columns == "id, created_at, record_type"
     assert fake.calls[0]["filters"] == {"patient_id": PATIENT_ID}
 
 
