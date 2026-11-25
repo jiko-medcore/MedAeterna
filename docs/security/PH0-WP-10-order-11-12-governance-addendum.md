@@ -64,11 +64,24 @@ The repository owner reports the active ruleset configuration as follows:
 
 The connected GitHub repository tools used for this review did not expose ruleset-detail read access. These values are therefore recorded as **owner-confirmed**, not independently API-verified. The administrator exemption is a material exception: do not describe the ruleset as unbypassable or as enforcing the same requirements against administrators.
 
-### 3.2 Negative merge demonstration
+### 3.2 Negative merge demonstration — verified PR #44
 
-The repository owner reports that a deliberately non-compliant test PR / merge attempt was successfully blocked. Record the negative merge demonstration as **owner-reported successful**.
+The exact test artifact is [PR #44 — “test: deliberately fail Backend verification”](https://github.com/jiko-medcore/MedAeterna/pull/44).
 
-The repository search performed for this update did not identify a test PR number, URL, or associated failed/pending check artifact. Attach that exact test PR and check evidence to the canonical Order 11/12 records when available. Do not merge the test PR. Until the artifact is linked, distinguish the owner's report from independently inspectable GitHub evidence.
+Read-only GitHub evidence for PR #44:
+
+- PR author: `jiko-medcore`.
+- Head branch: `test/backend-verification-negative`.
+- Test commit: `b214c8d4b7fe100a478ee6c89775fbb1a0395521`.
+- Target: `main`, at base commit `9aa5ba6a4965e19229e9a8c922a349e76be4d1d1`.
+- `Backend verification` check: **COMPLETED / FAILURE**.
+- Actions job: [Backend verification — run 45556023177, job 139008151294](https://github.com/jiko-medcore/MedAeterna/actions/runs/45556023177/job/139008151294).
+- GitHub pull-request state: **CLOSED**, `merged: false`, `merged_at: null`.
+- GitHub's reported `mergeable_state`: **blocked**.
+
+The failing required check and GitHub's `blocked` mergeability state, together with the PR's closed-but-unmerged state, provide repository evidence that the deliberately failing change did not merge into `main`. The PR's `merge_commit_sha` field is populated by GitHub even though `merged` is false; do not interpret that field as proof of a completed merge.
+
+**Disposition:** Negative merge-gate demonstration is now **VERIFIED from GitHub PR/check evidence**, not merely owner-reported. Keep PR #44 closed and unmerged; do not merge it. This verifies the required-check gate for this test case, but does not remove the administrator-exemption caveat or prove all other branch/ruleset controls.
 
 ### 3.3 New CI evidence since PR #42
 
@@ -103,7 +116,7 @@ This update improves the governance evidence but does not change the formal acce
 
 - A retrospective approval by the same human is not an independent pre-merge review.
 - Ruleset settings are owner-confirmed, not independently read through the GitHub API in this review.
-- The negative merge test is owner-reported until its PR/check artifact is linked.
+- PR #44 supplies independently inspectable GitHub evidence of a failed required check, blocked mergeability, and a closed-but-unmerged test PR.
 - Hosted staging, production preflight, production deployment, and Gate G verification remain outstanding.
 
 **Order 12 exit condition: NOT MET. Phase 0: NOT ACCEPTED. Controlled release: STOP.**
@@ -114,14 +127,14 @@ Issue #38 received a corresponding evidence comment on 25 November 2026. The iss
 
 - the retrospective PR #42 approval and same-person clarification;
 - the owner-confirmed ruleset settings and administrator exemption;
-- the owner-reported successful negative merge demonstration, with a request to attach the exact test PR/check evidence;
+- verified negative merge-gate evidence from PR #44: the required `Backend verification` check failed, GitHub reported the PR as blocked, and the PR was closed without merging;
 - successful `Backend verification` CI for PR #43 and its merge commit;
 - continued non-closure of SEC findings and Phase 0.
 
 ## 5. Required follow-up
 
 1. Restore the canonical Order 11 and Order 12 files to `docs/security/` and incorporate this addendum into their relevant sections.
-2. Add the test PR URL/number and the failed or pending `Backend verification` check evidence for the negative merge demonstration.
+2. Preserve PR #44 and its failed `Backend verification` check as the negative merge-gate evidence; do not merge the test PR.
 3. Preserve the distinction between automated Copilot review, retrospective owner approval, independent human review, and pre-merge approval.
 4. Keep all SEC findings and issues open until their own evidence-backed closure criteria are met.
 5. Continue to treat §8.5 production authorization and Gate G as separate, outstanding controls.
@@ -134,4 +147,6 @@ Issue #38 received a corresponding evidence comment on 25 November 2026. The iss
 - [PR #43](https://github.com/jiko-medcore/MedAeterna/pull/43)
 - [Issue #38](https://github.com/jiko-medcore/MedAeterna/issues/38)
 - [PR #43 merge commit](https://github.com/jiko-medcore/MedAeterna/commit/9aa5ba6a4965e19229e9a8c922a349e76be4d1d1)
+- [PR #44 negative merge test](https://github.com/jiko-medcore/MedAeterna/pull/44)
+- [PR #44 Backend verification job](https://github.com/jiko-medcore/MedAeterna/actions/runs/45556023177/job/139008151294)
 - [GitHub documentation — Copilot code review](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-code-review)
