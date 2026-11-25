@@ -420,3 +420,35 @@ def test_clinical_services_reject_empty_patient_scope_before_query(monkeypatch, 
 
     assert lab_fake.calls == []
     assert record_fake.calls == []
+
+
+
+def test_lab_detail_rejects_stored_row_patient_mismatch_before_query(monkeypatch):
+    fake = FakeClient(lab_responder)
+    monkeypatch.setattr(lab_service, "supabase_admin", fake)
+    context = authorized_context()
+    context["resource_row"]["patient_id"] = "other-patient"
+
+    with pytest.raises(HTTPException) as exc:
+        lab_service.build_lab_detail(LAB_ID, authorized_context=context)
+
+    assert exc.value.status_code == 403
+    assert fake.calls == []
+
+
+def test_legacy_record_create_requires_organization_scope_before_insert(monkeypatch):
+    fake = FakeClient(record_responder)
+    monkeypatch.setattr(record_service, "supabase_admin", fake)
+    payload = SimpleNamespace(
+        patient_id=PATIENT_ID,
+        record_type="observation",
+        clinical_data={"resourceType": "Observation"},
+    )
+    context = authorized_context(action="create")
+    context["authorized_organization_id"] = ""
+
+    with pytest.raises(HTTPException) as exc:
+        record_service.create_record(payload, authorized_context=context)
+
+    assert exc.value.status_code == 403
+    assert fake.calls == []
