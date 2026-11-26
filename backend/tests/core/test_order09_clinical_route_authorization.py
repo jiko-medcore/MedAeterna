@@ -836,7 +836,12 @@ def test_add_care_team_participant_requires_parent_resource_context(monkeypatch)
 def test_add_care_team_participant_is_bound_to_authorized_parent(monkeypatch):
     admin = _CareTeamParticipantAdmin()
     monkeypatch.setattr(care_team_service, "supabase_admin", admin)
-    monkeypatch.setattr(care_team_service, "audit_clinical_write", lambda *a, **k: None)
+    audited = []
+    monkeypatch.setattr(
+        care_team_service,
+        "audit_clinical_write",
+        lambda context, **kwargs: audited.append((context, kwargs)),
+    )
     payload = SimpleNamespace(
         practitioner_id="prac-2",
         role_code="nurse",
@@ -851,6 +856,12 @@ def test_add_care_team_participant_is_bound_to_authorized_parent(monkeypatch):
     assert result["id"] == "participant-new"
     assert admin.calls[-1]["operation"] == "insert"
     assert admin.calls[-1]["payload"]["care_team_id"] == "ct-1"
+    assert audited[0][0]["authorized_user_id"] == "admin-1"
+    assert audited[0][1] == {
+        "action": "add_participant",
+        "resource_type": "care_team",
+        "resource_id": "ct-1",
+    }
 
 
 def test_update_care_team_participant_rejects_participant_from_another_parent(monkeypatch):
@@ -873,7 +884,12 @@ def test_update_care_team_participant_rejects_participant_from_another_parent(mo
 def test_update_care_team_participant_update_is_constrained_by_parent(monkeypatch):
     admin = _CareTeamParticipantAdmin()
     monkeypatch.setattr(care_team_service, "supabase_admin", admin)
-    monkeypatch.setattr(care_team_service, "audit_clinical_write", lambda *a, **k: None)
+    audited = []
+    monkeypatch.setattr(
+        care_team_service,
+        "audit_clinical_write",
+        lambda context, **kwargs: audited.append((context, kwargs)),
+    )
     payload = SimpleNamespace(model_dump=lambda **_kwargs: {"active": False})
     result = care_team_service.update_care_team_participant(
         "participant-1", payload,
@@ -884,4 +900,10 @@ def test_update_care_team_participant_update_is_constrained_by_parent(monkeypatc
     assert update_call["filters"] == {
         "id": "participant-1",
         "care_team_id": "ct-1",
+    }
+    assert audited[0][0]["authorized_user_id"] == "admin-1"
+    assert audited[0][1] == {
+        "action": "update_participant",
+        "resource_type": "care_team_participant",
+        "resource_id": "participant-1",
     }
