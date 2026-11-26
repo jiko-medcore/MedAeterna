@@ -4,6 +4,7 @@ from app.core import security
 from app.core.clinical_authorization import (
     CARE_TEAM,
     authorize_clinical_access,
+    authorize_table_access,
     require_patient_clinical,
 )
 from app.modules.care_team.schemas import (
@@ -64,21 +65,14 @@ def add_participant(
     payload: CareTeamParticipantAdd,
     current_user: dict = Depends(security.get_current_user),
 ):
-    team = security.fetch_resource(
-        "care_teams", "id, patient_id, organization_id", id=str(care_team_id)
-    )
-    if not team:
-        raise HTTPException(status_code=404, detail="Care team not found")
-
-    context = authorize_clinical_access(
+    # Authorize the stored parent resource, not merely caller-supplied or
+    # separately reconstructed patient/organization scope.
+    context = authorize_table_access(
         current_user,
-        resource=CARE_TEAM,
-        action="update",
-        patient_id=str(team["patient_id"]),
-        organization_id=str(team.get("organization_id") or "") or None,
+        "care_teams",
+        str(care_team_id),
+        "update",
         verified_conditions={"audit_recorded"},
-        allow_organization_admin=True,
-        organization_care_authority=True,
     )
     organization_id = str(context.get("authorized_organization_id") or "")
     _require_org_practitioner(payload.practitioner_id, organization_id)
@@ -120,15 +114,14 @@ def update_participant(
     if not patient_id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    context = authorize_clinical_access(
+    # Resolve authorization from the participant's persisted parent team.
+    # The service repeats the child-parent check before applying the mutation.
+    context = authorize_table_access(
         current_user,
-        resource=CARE_TEAM,
-        action="update",
-        patient_id=str(patient_id),
-        organization_id=str(team.get("organization_id") or "") or None,
+        "care_teams",
+        str(row.get("care_team_id") or ""),
+        "update",
         verified_conditions={"audit_recorded"},
-        allow_organization_admin=True,
-        organization_care_authority=True,
     )
     return update_care_team_participant(
         participant_id, payload, authorized_context=context
