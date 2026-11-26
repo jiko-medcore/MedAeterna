@@ -731,3 +731,157 @@ def test_lab_and_reminder_projections_match_local_schema():
     ).read_text(encoding="utf-8")
     assert "reminder_date" in reminder_source
     assert "scheduled_at" not in reminder_source
+
+
+def _care_team_parent_context(care_team_id="ct-1", patient_id="patient-1", org="org-1"):
+    return {
+        "authorized_action": "update",
+        "authorized_resource": clinical.CARE_TEAM,
+        "authorized_resource_id": care_team_id,
+        "authorized_patient_id": patient_id,
+        "authorized_organization_id": org,
+        "authorized_user_id": "admin-1",
+    }
+
+
+class _CareTeamParticipantAdmin:
+    """Operation-aware local fake for parent/participant service-boundary tests."""
+
+    def __init__(self, participant=None):
+        self.participant = participant or {
+            "id": "participant-1",
+            "care_team_id": "ct-1",
+            "practitioner_id": "prac-1",
+        }
+        self.calls = []
+
+    def table(self, name):
+        admin = self
+
+        class Query:
+            def __init__(self):
+                self.operation = "select"
+                self.filters = {}
+                self.payload = None
+
+            def select(self, _columns="*"):
+                self.operation = "select"
+                return self
+
+            def insert(self, payload):
+                self.operation = "insert"
+                self.payload = payload
+                return self
+
+            def update(self, payload):
+                self.operation = "update"
+                self.payload = payload
+                return self
+
+            def eq(self, key, value):
+                self.filters[key] = value
+                return self
+
+            def execute(self):
+                admin.calls.append({
+                    "table": name,
+                    "operation": self.operation,
+                    "filters": dict(self.filters),
+                    "payload": self.payload,
+                })
+                if self.operation == "select":
+                    if name == "care_team_participants":
+                        row = admin.participant
+                        return SimpleNamespace(
+                            data=[row] if row and all(
+                                row.get(k) == v for k, v in self.filters.items()
+                            ) else []
+                        )
+                    return SimpleNamespace(data=[])
+                if self.operation == "insert":
+                    return SimpleNamespace(data=[{"id": "participant-new", **self.payload}])
+                return SimpleNamespace(data=[{"id": "participant-1", **self.payload}])
+
+        return Query()
+
+
+def test_add_care_team_participant_requires_parent_resource_context(monkeypatch):
+    admin = _CareTeamParticipantAdmin()
+    monkeypatch.setattr(care_team_service, "supabase_admin", admin)
+    payload = SimpleNamespace(
+        practitioner_id="prac-2",
+        role_code="nurse",
+        responsibility=None,
+        start_date=None,
+        end_date=None,
+        metadata=None,
+    )
+    # A patient/organization authorization without the parent resource binding
+    # is not sufficient to mutate a child participant collection.
+    context = {
+        "authorized_action": "update",
+        "authorized_resource": clinical.CARE_TEAM,
+        "authorized_patient_id": "patient-1",
+        "authorized_organization_id": "org-1",
+        "authorized_user_id": "admin-1",
+    }
+    with pytest.raises(HTTPException) as exc:
+        care_team_service.add_care_team_participant(
+            "ct-1", payload, authorized_context=context
+        )
+    assert exc.value.status_code == 403
+    assert admin.calls == []
+
+
+def test_add_care_team_participant_is_bound_to_authorized_parent(monkeypatch):
+    admin = _CareTeamParticipantAdmin()
+    monkeypatch.setattr(care_team_service, "supabase_admin", admin)
+    monkeypatch.setattr(care_team_service, "audit_clinical_write", lambda *a, **k: None)
+    payload = SimpleNamespace(
+        practitioner_id="prac-2",
+        role_code="nurse",
+        responsibility=None,
+        start_date=None,
+        end_date=None,
+        metadata=None,
+    )
+    result = care_team_service.add_care_team_participant(
+        "ct-1", payload, authorized_context=_care_team_parent_context("ct-1")
+    )
+    assert result["id"] == "participant-new"
+    assert admin.calls[-1]["operation"] == "insert"
+    assert admin.calls[-1]["payload"]["care_team_id"] == "ct-1"
+
+
+def test_update_care_team_participant_rejects_participant_from_another_parent(monkeypatch):
+    admin = _CareTeamParticipantAdmin(
+        participant={"id": "participant-1", "care_team_id": "ct-other"}
+    )
+    monkeypatch.setattr(care_team_service, "supabase_admin", admin)
+    payload = SimpleNamespace(
+        model_dump=lambda **_kwargs: {"active": False},
+    )
+    with pytest.raises(HTTPException) as exc:
+        care_team_service.update_care_team_participant(
+            "participant-1", payload,
+            authorized_context=_care_team_parent_context("ct-1"),
+        )
+    assert exc.value.status_code == 403
+    assert not any(call["operation"] == "update" for call in admin.calls)
+
+
+def test_update_care_team_participant_update_is_constrained_by_parent(monkeypatch):
+    admin = _CareTeamParticipantAdmin()
+    monkeypatch.setattr(care_team_service, "supabase_admin", admin)
+    monkeypatch.setattr(care_team_service, "audit_clinical_write", lambda *a, **k: None)
+    payload = SimpleNamespace(model_dump=lambda **_kwargs: {"active": False})
+    result = care_team_service.update_care_team_participant(
+        "participant-1", payload,
+        authorized_context=_care_team_parent_context("ct-1"),
+    )
+    assert result["id"] == "participant-1"
+    update_call = next(call for call in admin.calls if call["operation"] == "update")
+    assert update_call["filters"] == {
+        "id": "participant-1",
+        "care_team_id": "ct-1",
+    }
