@@ -165,12 +165,33 @@ def update_care_team_participant(
     *,
     authorized_context: dict,
 ):
+    # The authorization decision is for the parent CareTeam. Bind the
+    # participant mutation to that exact parent rather than treating the child
+    # participant id as a CareTeam resource id.
+    care_team_id = str(
+        (authorized_context or {}).get("authorized_resource_id") or ""
+    )
     ensure_authorized_context(
         authorized_context,
         resource=CARE_TEAM,
         action="update",
-        resource_id=str(participant_id),
+        resource_id=care_team_id,
     )
+
+    participant = (
+        supabase_admin
+        .table("care_team_participants")
+        .select("id, care_team_id")
+        .eq("id", str(participant_id))
+        .execute()
+    )
+    if not participant.data:
+        raise HTTPException(
+            status_code=404,
+            detail="Care team participant not found",
+        )
+    if str(participant.data[0].get("care_team_id") or "") != care_team_id:
+        raise HTTPException(status_code=403, detail="Care team parent mismatch")
 
     update_data = payload.model_dump(
         exclude_unset=True
@@ -198,7 +219,8 @@ def update_care_team_participant(
         supabase_admin
         .table("care_team_participants")
         .update(update_data)
-        .eq("id", participant_id)
+        .eq("id", str(participant_id))
+        .eq("care_team_id", care_team_id)
         .execute()
     )
 
