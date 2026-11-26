@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from app.core.clinical_authorization import ensure_patient_self_read_context
@@ -16,7 +16,7 @@ def get_upcoming_reminders(
         patient_id=patient_id,
     )
 
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     response = (
         supabase
