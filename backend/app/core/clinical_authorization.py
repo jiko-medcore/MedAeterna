@@ -481,6 +481,91 @@ def ensure_authorized_context(
             _deny("Resource scope mismatch")
 
 
+
+def authorize_patient_self_read(
+    current_user: dict[str, Any],
+    *,
+    resource: str,
+    patient_id: str,
+) -> dict[str, Any]:
+    """Authorize a patient reading their own legacy records or reminders.
+
+    Clinical records retain the SPEC-04 patient-relationship check. Reminders
+    are governed by the explicit SPEC-03 reminder/read patient-self rule and
+    are not a clinical resource family in the SPEC-04 relationship catalogue.
+    """
+    if resource not in {CLINICAL_RECORD, "reminder"}:
+        _deny("Unsupported patient self-read resource", status.HTTP_400_BAD_REQUEST)
+
+    user_id = str(current_user.get("id") or "").strip()
+    patient_id = str(patient_id or "").strip()
+    roles = current_user.get("roles") or []
+
+    if not user_id or not patient_id:
+        _deny("Patient context required", status.HTTP_400_BAD_REQUEST)
+    if user_id != patient_id or not has_scoped_category(roles, PATIENT):
+        _deny("Patient self-access required")
+
+    patient_context: dict[str, Any] = current_user
+    if resource == CLINICAL_RECORD:
+        patient_context = security.authorize_patient_access(
+            current_user,
+            patient_id,
+            allow_practitioner=False,
+            resource_family="clinical_history",
+            action="read",
+        )
+
+    organization_id = patient_context.get("authorized_organization_id")
+    decision = evaluate_action(
+        actor_roles=roles,
+        resource=resource,
+        action="read",
+        actor_id=user_id,
+        subject_user_id=patient_id,
+        organization_id=str(organization_id) if organization_id else None,
+        verified_conditions=(
+            {"subject_is_actor", "permitted_resource_scope"}
+            if resource == CLINICAL_RECORD
+            else {"subject_is_actor"}
+        ),
+    )
+    if not decision.allowed:
+        _deny(f"Action denied: {decision.reason}")
+
+    return {
+        **patient_context,
+        "authorized_action": "read",
+        "authorized_resource": resource,
+        "authorized_patient_id": patient_id,
+        "authorized_user_id": user_id,
+    }
+
+
+def ensure_patient_self_read_context(
+    context: dict[str, Any] | None,
+    *,
+    resource: str,
+    patient_id: str,
+) -> None:
+    """Require a matching patient-self-read decision at a service boundary."""
+    ensure_authorized_context(
+        context,
+        resource=resource,
+        action="read",
+        patient_id=patient_id,
+    )
+
+    expected_patient_id = str(patient_id).strip()
+    authorized_user_id = str(context.get("authorized_user_id") or "").strip()
+    roles = context.get("roles") or []
+    if (
+        not expected_patient_id
+        or authorized_user_id != expected_patient_id
+        or not has_scoped_category(roles, PATIENT)
+    ):
+        _deny("Patient self-access context required")
+
 def require_patient_clinical(
     resource: str,
     action: str,

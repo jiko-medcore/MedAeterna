@@ -120,6 +120,18 @@ def test_user_summary_returns_signed_avatar_url_under_existing_field(
     )
     mocker.patch.object(dashboard_service, "get_active_prescriptions", return_value=[])
     mocker.patch.object(dashboard_service, "get_upcoming_reminders", return_value=[])
+    from app.modules.dashboard import router as dashboard_router
+    mocker.patch.object(
+        dashboard_router,
+        "authorize_patient_self_read",
+        side_effect=lambda user, *, resource, patient_id: {
+            **user,
+            "authorized_action": "read",
+            "authorized_resource": resource,
+            "authorized_user_id": patient_id,
+            "authorized_patient_id": patient_id,
+        },
+    )
 
     response = authenticated_client.get("/api/v1/user/summary")
 
