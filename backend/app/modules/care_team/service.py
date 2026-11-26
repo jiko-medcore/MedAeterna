@@ -224,6 +224,14 @@ def update_care_team_participant(
         .execute()
     )
 
+    if not response.data:
+        # The participant may have been removed or re-parented between the
+        # ownership check and the constrained update. Never report success.
+        raise HTTPException(
+            status_code=404,
+            detail="Care team participant not found",
+        )
+
     audit_clinical_write(
         authorized_context,
         action="update_participant",
