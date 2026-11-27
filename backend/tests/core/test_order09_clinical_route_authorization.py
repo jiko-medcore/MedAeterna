@@ -1041,7 +1041,7 @@ def test_patient_profile_update_route_passes_allowlisted_payload_and_context(mon
         ) or {"id": patient_id},
     )
     result = patients_router.update_my_profile(
-        PatientUpdate(first_name="Updated"),
+        PatientUpdate.model_construct(first_name="Updated"),
         current_user=_patient_actor(),
     )
     assert result == {"id": PATIENT_UUID}
