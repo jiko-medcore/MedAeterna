@@ -20,6 +20,7 @@ def test_patient_avatar_upload_uses_service_role_owner_path_and_signed_url(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     file_path = f"{patient_id}/avatar.png"
     bucket, admin = _mock_admin(mocker)
@@ -45,7 +46,9 @@ def test_patient_avatar_upload_uses_service_role_owner_path_and_signed_url(
         file_path, PATIENT_AVATAR_URL_TTL_SECONDS
     )
     bucket.get_public_url.assert_not_called()
-    update_image.assert_called_once_with(patient_id, file_path)
+    update_image.assert_called_once_with(
+        patient_id, file_path, authorized_context=mocker.ANY
+    )
     assert response.json() == {
         "message": "Profile image uploaded successfully",
         "profile_image_url": SIGNED_URL,
@@ -56,6 +59,7 @@ def test_patient_avatar_upload_rejects_forged_image_before_storage_call(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     bucket, admin = _mock_admin(mocker)
 
     response = authenticated_client.post(
@@ -73,6 +77,7 @@ def test_patient_avatar_upload_rejects_oversized_file(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     bucket, admin = _mock_admin(mocker)
 
     response = authenticated_client.post(
@@ -108,6 +113,7 @@ def test_avatar_upload_compensates_object_when_database_update_fails(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     file_path = f"{patient_id}/avatar.png"
     bucket, admin = _mock_admin(mocker)
@@ -129,6 +135,7 @@ def test_avatar_upload_compensates_object_when_signing_fails(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     file_path = f"{patient_id}/avatar.png"
     bucket, admin = _mock_admin(mocker, signed_url="")
