@@ -1,6 +1,11 @@
 from fastapi import HTTPException
 
-from app.core.clinical_authorization import CLINICAL_RECORD, PATIENT_LIST, ensure_authorized_context
+from app.core.clinical_authorization import (
+    CLINICAL_RECORD,
+    PATIENT_LIST,
+    PATIENT_PROFILE,
+    ensure_authorized_context,
+)
 from app.core.patient_avatar_access import (
     is_patient_avatar_object_path,
     with_private_avatar_url,
@@ -423,7 +428,15 @@ def get_my_patients(*, authorized_context: Dict[str, Any]):
 
 
 # ---- Get Patient Profile ----
-def get_patient_profile(patient_id: str) -> Dict[str, Any]:
+def get_patient_profile(
+    patient_id: str, *, authorized_context: Dict[str, Any]
+) -> Dict[str, Any]:
+    ensure_authorized_context(
+        authorized_context,
+        resource=PATIENT_PROFILE,
+        action="read",
+        patient_id=str(patient_id),
+    )
     response = (
         supabase
         .table("patients")
@@ -458,7 +471,18 @@ def get_patient_profile(patient_id: str) -> Dict[str, Any]:
 
 
 # ---- Update Patient Info ----
-def update_patient_info(patient_id: str, payload: dict):
+def update_patient_info(
+    patient_id: str,
+    payload: dict,
+    *,
+    authorized_context: Dict[str, Any],
+):
+    ensure_authorized_context(
+        authorized_context,
+        resource=PATIENT_PROFILE,
+        action="update",
+        patient_id=str(patient_id),
+    )
     response = (
         supabase
         .table("patients")
@@ -476,8 +500,19 @@ def update_patient_info(patient_id: str, payload: dict):
 
 
 # ---- Update Patient Profile Image ----
-def update_profile_image_path(patient_id: str, object_path: str) -> Dict[str, Any]:
+def update_profile_image_path(
+    patient_id: str,
+    object_path: str,
+    *,
+    authorized_context: Dict[str, Any],
+) -> Dict[str, Any]:
     """Persist only the stable private object path, never a signed URL."""
+    ensure_authorized_context(
+        authorized_context,
+        resource=PATIENT_PROFILE,
+        action="update",
+        patient_id=str(patient_id),
+    )
     if not is_patient_avatar_object_path(object_path, patient_id):
         raise PatientUpdateError("Invalid patient avatar object path")
 
@@ -502,8 +537,15 @@ def update_profile_image_path(patient_id: str, object_path: str) -> Dict[str, An
 
 
 # ----- Get Patient Medical ID -----
-def get_patient_medical_id(patient_id: str) -> str:
-
+def get_patient_medical_id(
+    patient_id: str, *, authorized_context: Dict[str, Any]
+) -> str:
+    ensure_authorized_context(
+        authorized_context,
+        resource=PATIENT_PROFILE,
+        action="read",
+        patient_id=str(patient_id),
+    )
     response = (
         supabase_admin
         .table("patients")
