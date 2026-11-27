@@ -44,6 +44,22 @@ PATIENT_EXPORT_SELECT = "id, fhir_metadata"
 PATIENT_SUMMARY_SELECT = "id, first_name, last_name, gender, date_of_birth"
 PATIENT_RECORD_SUMMARY_SELECT = "id, created_at, record_type, clinical_data"
 PATIENT_TIMELINE_SELECT = "id, created_at, record_type, clinical_data"
+PATIENT_PROFILE_UPDATE_FIELDS = frozenset({
+    "first_name",
+    "last_name",
+    "middle_name",
+    "date_of_birth",
+    "gender",
+    "blood_group",
+    "marital_status",
+    "phone",
+    "email",
+    "address",
+    "emergency_contact_name",
+    "emergency_contact_phone",
+})
+
+
 PATIENT_LIST_SELECT = (
     "id, medical_id, first_name, last_name, date_of_birth, gender, "
     "profile_image_path, profile_image_url"
@@ -483,6 +499,14 @@ def update_patient_info(
         action="update",
         patient_id=str(patient_id),
     )
+    if (
+        not payload
+        or not set(payload).issubset(PATIENT_PROFILE_UPDATE_FIELDS)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Patient profile fields are not permitted",
+        )
     response = (
         supabase
         .table("patients")
