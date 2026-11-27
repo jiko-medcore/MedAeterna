@@ -47,6 +47,7 @@ def test_patients_me_returns_signed_url_and_hides_stored_path(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     path = f"{patient_id}/avatar.png"
     _, bucket = _mock_storage(mocker)
@@ -75,6 +76,7 @@ def test_patient_profile_me_returns_signed_url_and_hides_stored_path(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     path = f"{patient_id}/avatar.webp"
     _, bucket = _mock_storage(mocker)
@@ -103,6 +105,7 @@ def test_user_summary_returns_signed_avatar_url_under_existing_field(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     path = f"{patient_id}/avatar.jpg"
@@ -200,6 +203,7 @@ def test_patient_read_fails_closed_when_signing_fails(
     authenticated_client, current_user, mocker, route
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     _, bucket = _mock_storage(mocker, signed_url="")
     bucket.create_signed_url.return_value = {}
@@ -224,6 +228,7 @@ def test_legacy_public_url_is_signed_without_legacy_path_column(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     path = f"{patient_id}/avatar.png"
     legacy_url = (
@@ -253,6 +258,7 @@ def test_unknown_legacy_value_is_not_returned_as_avatar_url(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     _, bucket = _mock_storage(mocker)
     _mock_select(
