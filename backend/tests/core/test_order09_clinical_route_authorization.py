@@ -970,5 +970,37 @@ def test_patient_profile_service_requires_authorized_context_before_query(monkey
 
     monkeypatch.setattr(patients_service, "supabase", NoQuery())
     with pytest.raises(HTTPException) as exc:
-        patients_service.get_patient_profile(PATIENT_UUID)
+        patients_service.get_patient_profile(
+            PATIENT_UUID, authorized_context=None
+        )
     assert exc.value.status_code == 403
+
+
+def test_patient_profile_route_ignores_legacy_is_patient_flag(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        patients_service,
+        "get_patient_profile",
+        lambda *args, **kwargs: called.append((args, kwargs)),
+    )
+    with pytest.raises(HTTPException):
+        patients_router.my_profile(
+            current_user={"id": PATIENT_UUID, "is_patient": True, "roles": []}
+        )
+    assert called == []
+
+
+def test_patient_profile_route_passes_owner_bound_context(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        patients_service,
+        "get_patient_profile",
+        lambda patient_id, **kwargs: captured.update(
+            patient_id=patient_id, context=kwargs["authorized_context"]
+        ) or {"id": patient_id},
+    )
+    result = patients_router.my_profile(current_user=_patient_actor())
+    assert result == {"id": PATIENT_UUID}
+    assert captured["patient_id"] == PATIENT_UUID
+    assert captured["context"]["authorized_resource"] == "patient_profile"
+    assert captured["context"]["authorized_user_id"] == PATIENT_UUID
