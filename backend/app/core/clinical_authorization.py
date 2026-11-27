@@ -34,6 +34,7 @@ from app.core.role_catalogue import (
 )
 
 CLINICAL_RECORD = "clinical_record"
+PATIENT_PROFILE = "patient_profile"
 APPOINTMENT = "appointment"
 CARE_TEAM = "care_team"
 PATIENT_LIST = "patient_list"
@@ -481,6 +482,53 @@ def ensure_authorized_context(
             _deny("Resource scope mismatch")
 
 
+
+def authorize_patient_profile_access(
+    current_user: dict[str, Any],
+    *,
+    action: str,
+    patient_id: str,
+    permitted_fields: bool = False,
+) -> dict[str, Any]:
+    """Authorize a patient's own profile read or allowlisted profile update.
+
+    ``permitted_fields`` is trusted route evidence: callers may set it only
+    after constraining the update payload to the PatientUpdate schema/allowlist.
+    The legacy is_patient flag is not identity or role evidence.
+    """
+    if action not in {"read", "update"}:
+        _deny("Unsupported patient profile action", status.HTTP_400_BAD_REQUEST)
+
+    user_id = str(current_user.get("id") or "").strip()
+    patient_id = str(patient_id or "").strip()
+    roles = current_user.get("roles") or []
+    if not user_id or not patient_id:
+        _deny("Patient context required", status.HTTP_400_BAD_REQUEST)
+    if user_id != patient_id or not has_scoped_category(roles, PATIENT):
+        _deny("Patient self-access required")
+
+    conditions = {"subject_is_actor"}
+    if action == "update" and permitted_fields:
+        conditions.add("permitted_fields")
+
+    decision = evaluate_action(
+        actor_roles=roles,
+        resource=PATIENT_PROFILE,
+        action=action,
+        actor_id=user_id,
+        subject_user_id=patient_id,
+        verified_conditions=conditions,
+    )
+    if not decision.allowed:
+        _deny(f"Action denied: {decision.reason}")
+
+    return {
+        **current_user,
+        "authorized_action": action,
+        "authorized_resource": PATIENT_PROFILE,
+        "authorized_patient_id": patient_id,
+        "authorized_user_id": user_id,
+    }
 
 def authorize_patient_self_read(
     current_user: dict[str, Any],
