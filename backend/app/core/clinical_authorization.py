@@ -34,6 +34,7 @@ from app.core.role_catalogue import (
 )
 
 CLINICAL_RECORD = "clinical_record"
+PATIENT_PROFILE = "patient_profile"
 APPOINTMENT = "appointment"
 CARE_TEAM = "care_team"
 PATIENT_LIST = "patient_list"
@@ -65,6 +66,20 @@ TABLE_POLICY: dict[str, dict[str, Any]] = {
         "columns": "id, patient_id, organization_id",
         "resource": CARE_TEAM,
     },
+    # Legacy clinical-history rows do not carry organization_id; organization
+    # scope is resolved from the persisted patient row by the authorization path.
+    "medical_records": {
+        "columns": "id, patient_id, clinician_id, record_type",
+        "resource": CLINICAL_RECORD,
+        "relationship_resource_family": "clinical_history",
+    },
+    # Lab results have patient and clinician references but no organization or
+    # order/specimen foreign key in the current schema. Read scope is patient-bound.
+    "lab_results": {
+        "columns": "id, patient_id, clinician_id",
+        "resource": CLINICAL_RECORD,
+        "relationship_resource_family": "lab_result",
+    },
 }
 
 
@@ -84,16 +99,35 @@ def practitioner_actor_id(current_user: dict[str, Any]) -> str:
     return practitioner_id
 
 
-def practitioner_organization_id(current_user: dict[str, Any]) -> str:
-    """Resolve one unambiguous practitioner organization or fail closed."""
+def practitioner_organization_ids(current_user: dict[str, Any]) -> tuple[str, ...]:
+    """Return organization scopes from the authenticated practitioner role context."""
     org_ids = {
         str(role["organization_id"])
         for role in (current_user.get("roles") or [])
         if role.get("category") == PRACTITIONER and role.get("organization_id")
     }
+    return tuple(sorted(org_ids))
+
+
+def resolve_practitioner_organization_id(
+    current_user: dict[str, Any],
+    requested_organization_id: str | None = None,
+) -> str:
+    """Resolve one practitioner organization, allowing only an in-scope selection."""
+    org_ids = practitioner_organization_ids(current_user)
+    if requested_organization_id is not None:
+        requested = str(requested_organization_id)
+        if requested not in org_ids:
+            _deny("Organization is outside the practitioner active role scope")
+        return requested
     if len(org_ids) != 1:
         _deny("An unambiguous practitioner organization is required")
-    return next(iter(org_ids))
+    return org_ids[0]
+
+
+def practitioner_organization_id(current_user: dict[str, Any]) -> str:
+    """Resolve one unambiguous practitioner organization or fail closed."""
+    return resolve_practitioner_organization_id(current_user)
 
 
 def authorize_patient_list_access(current_user: dict[str, Any]) -> dict[str, Any]:
@@ -157,6 +191,7 @@ def authorize_clinical_access(
     verified_conditions: Iterable[str] = (),
     allow_organization_admin: bool = False,
     organization_care_authority: bool = False,
+    relationship_resource_family: str = "clinical_history",
 ) -> dict[str, Any]:
     """Authorize one role/action against a verified patient-scoped resource.
 
@@ -191,7 +226,7 @@ def authorize_clinical_access(
             str(patient_id),
             organization_id=organization_id,
             allow_practitioner=False,
-            resource_family="clinical_history",
+            resource_family=relationship_resource_family,
             action=action,
         )
         checked.update({"subject_is_actor", "permitted_resource_scope"})
@@ -219,7 +254,7 @@ def authorize_clinical_access(
             current_user,
             str(patient_id),
             organization_id=organization_id,
-            resource_family="clinical_history",
+            resource_family=relationship_resource_family,
             action=action,
         )
         # Treatment relationship is verified above. Consent is a separate SPEC-05
@@ -307,6 +342,7 @@ def authorize_table_access(
     action: str,
     *,
     verified_conditions: Iterable[str] = (),
+    relationship_resource_family: str | None = None,
 ) -> dict[str, Any]:
     """Load a stored resource and authorize an action against its own context."""
     policy = TABLE_POLICY.get(table)
@@ -364,6 +400,10 @@ def authorize_table_access(
         verified_conditions=checked,
         allow_organization_admin=resource == CARE_TEAM,
         organization_care_authority="organization_care_authority" in checked,
+        relationship_resource_family=(
+            relationship_resource_family
+            or policy.get("relationship_resource_family", "clinical_history")
+        ),
     )
     return {
         **context,
@@ -417,20 +457,162 @@ def ensure_authorized_context(
     resource_id: str | None = None,
 ) -> None:
     """Fail a direct service call unless it carries a matching route decision."""
-    if not context:
+    if not isinstance(context, dict) or not context:
         _deny("Authorized context required")
     if context.get("authorized_resource") != resource or context.get("authorized_action") != action:
         _deny("Action not authorized")
-    user_id = str(context.get("authorized_user_id") or context.get("id") or "")
-    if not user_id:
-        _deny("Authentication required", status.HTTP_401_UNAUTHORIZED)
-    if patient_id is not None and str(context.get("authorized_patient_id")) != str(patient_id):
-        _deny("Patient scope mismatch")
-    if organization_id is not None and str(context.get("authorized_organization_id") or "") != str(organization_id):
-        _deny("Organization scope mismatch")
-    if resource_id is not None and str(context.get("authorized_resource_id") or "") != str(resource_id):
-        _deny("Resource scope mismatch")
+    # The service boundary requires an explicit actor binding from authorization.
+    # The ordinary authenticated-user id is not an authorization-context substitute.
+    if not str(context.get("authorized_user_id") or "").strip():
+        _deny("Authorized actor context required", status.HTTP_401_UNAUTHORIZED)
+    if patient_id is not None:
+        expected_patient = str(patient_id).strip()
+        actual_patient = str(context.get("authorized_patient_id") or "").strip()
+        if not expected_patient or actual_patient != expected_patient:
+            _deny("Patient scope mismatch")
+    if organization_id is not None:
+        expected_organization = str(organization_id).strip()
+        actual_organization = str(context.get("authorized_organization_id") or "").strip()
+        if not expected_organization or actual_organization != expected_organization:
+            _deny("Organization scope mismatch")
+    if resource_id is not None:
+        expected_resource = str(resource_id).strip()
+        actual_resource = str(context.get("authorized_resource_id") or "").strip()
+        if not expected_resource or actual_resource != expected_resource:
+            _deny("Resource scope mismatch")
 
+
+
+def authorize_patient_profile_access(
+    current_user: dict[str, Any],
+    *,
+    action: str,
+    patient_id: str,
+    permitted_fields: bool = False,
+) -> dict[str, Any]:
+    """Authorize a patient's own profile read or allowlisted profile update.
+
+    ``permitted_fields`` is trusted route evidence: callers may set it only
+    after constraining the update payload to the PatientUpdate schema/allowlist.
+    The legacy is_patient flag is not identity or role evidence.
+    """
+    if action not in {"read", "update"}:
+        _deny("Unsupported patient profile action", status.HTTP_400_BAD_REQUEST)
+
+    user_id = str(current_user.get("id") or "").strip()
+    patient_id = str(patient_id or "").strip()
+    roles = current_user.get("roles") or []
+    if not user_id or not patient_id:
+        _deny("Patient context required", status.HTTP_400_BAD_REQUEST)
+    if user_id != patient_id or not has_scoped_category(roles, PATIENT):
+        _deny("Patient self-access required")
+
+    conditions = {"subject_is_actor"}
+    if action == "update" and permitted_fields:
+        conditions.add("permitted_fields")
+
+    decision = evaluate_action(
+        actor_roles=roles,
+        resource=PATIENT_PROFILE,
+        action=action,
+        actor_id=user_id,
+        subject_user_id=patient_id,
+        verified_conditions=conditions,
+    )
+    if not decision.allowed:
+        _deny(f"Action denied: {decision.reason}")
+
+    return {
+        **current_user,
+        "authorized_action": action,
+        "authorized_resource": PATIENT_PROFILE,
+        "authorized_patient_id": patient_id,
+        "authorized_user_id": user_id,
+    }
+
+def authorize_patient_self_read(
+    current_user: dict[str, Any],
+    *,
+    resource: str,
+    patient_id: str,
+) -> dict[str, Any]:
+    """Authorize a patient reading their own legacy records or reminders.
+
+    Clinical records retain the SPEC-04 patient-relationship check. Reminders
+    are governed by the explicit SPEC-03 reminder/read patient-self rule and
+    are not a clinical resource family in the SPEC-04 relationship catalogue.
+    """
+    if resource not in {CLINICAL_RECORD, "reminder"}:
+        _deny("Unsupported patient self-read resource", status.HTTP_400_BAD_REQUEST)
+
+    user_id = str(current_user.get("id") or "").strip()
+    patient_id = str(patient_id or "").strip()
+    roles = current_user.get("roles") or []
+
+    if not user_id or not patient_id:
+        _deny("Patient context required", status.HTTP_400_BAD_REQUEST)
+    if user_id != patient_id or not has_scoped_category(roles, PATIENT):
+        _deny("Patient self-access required")
+
+    patient_context: dict[str, Any] = current_user
+    if resource == CLINICAL_RECORD:
+        patient_context = security.authorize_patient_access(
+            current_user,
+            patient_id,
+            allow_practitioner=False,
+            resource_family="clinical_history",
+            action="read",
+        )
+
+    organization_id = patient_context.get("authorized_organization_id")
+    decision = evaluate_action(
+        actor_roles=roles,
+        resource=resource,
+        action="read",
+        actor_id=user_id,
+        subject_user_id=patient_id,
+        organization_id=str(organization_id) if organization_id else None,
+        verified_conditions=(
+            {"subject_is_actor", "permitted_resource_scope"}
+            if resource == CLINICAL_RECORD
+            else {"subject_is_actor"}
+        ),
+    )
+    if not decision.allowed:
+        _deny(f"Action denied: {decision.reason}")
+
+    return {
+        **patient_context,
+        "authorized_action": "read",
+        "authorized_resource": resource,
+        "authorized_patient_id": patient_id,
+        "authorized_user_id": user_id,
+    }
+
+
+def ensure_patient_self_read_context(
+    context: dict[str, Any] | None,
+    *,
+    resource: str,
+    patient_id: str,
+) -> None:
+    """Require a matching patient-self-read decision at a service boundary."""
+    ensure_authorized_context(
+        context,
+        resource=resource,
+        action="read",
+        patient_id=patient_id,
+    )
+
+    expected_patient_id = str(patient_id).strip()
+    authorized_user_id = str(context.get("authorized_user_id") or "").strip()
+    roles = context.get("roles") or []
+    if (
+        not expected_patient_id
+        or authorized_user_id != expected_patient_id
+        or not has_scoped_category(roles, PATIENT)
+    ):
+        _deny("Patient self-access context required")
 
 def require_patient_clinical(
     resource: str,

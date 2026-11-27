@@ -7,6 +7,7 @@ from app.core.clinical_authorization import (
     authorize_practitioner_schedule_access,
     authorize_table_access,
     practitioner_actor_id,
+    resolve_practitioner_organization_id,
     require_patient_clinical,
 )
 from app.modules.appointments.schemas import AppointmentCreate, AppointmentUpdate
@@ -61,21 +62,21 @@ def request_practitioner_appointments(
     practitioner_id: str,
     organization_id: str | None = None,
     current_user: dict = Depends(security.get_current_user),
-    practitioner: dict = Depends(security.require_practitioner),
 ):
-    org_ids = list(current_user.get("organization_ids") or [])
-    resolved_org = str(organization_id) if organization_id else (
-        org_ids[0] if len(org_ids) == 1 else None
+    # Resolve organization selection against the authenticated practitioner's
+    # validated role assignments, never the broader organization_ids field.
+    resolved_org = resolve_practitioner_organization_id(
+        current_user,
+        str(organization_id) if organization_id is not None else None,
     )
-    if resolved_org and resolved_org not in {str(org) for org in org_ids}:
-        raise HTTPException(status_code=403, detail="Access denied")
     context = authorize_practitioner_schedule_access(
         current_user,
-        practitioner_id=str(practitioner["id"]),
+        practitioner_id=str(practitioner_id),
         organization_id=resolved_org,
     )
     return get_practitioner_appointments(
-        practitioner_id, authorized_context=context
+        str(context["authorized_practitioner_id"]),
+        authorized_context=context,
     )
 
 

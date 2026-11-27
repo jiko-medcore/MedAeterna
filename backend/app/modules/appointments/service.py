@@ -152,10 +152,14 @@ def get_practitioner_appointments(
     *,
     authorized_context: dict,
 ):
+    organization_id = str(authorized_context.get("authorized_organization_id") or "")
+    if not organization_id:
+        raise HTTPException(status_code=403, detail="Practitioner organization context required")
     ensure_authorized_context(
         authorized_context,
         resource=APPOINTMENT,
         action="read",
+        organization_id=organization_id,
     )
     if str(authorized_context.get("authorized_practitioner_id") or "") != str(practitioner_id):
         raise HTTPException(status_code=403, detail="Practitioner scope mismatch")
@@ -172,6 +176,7 @@ def get_practitioner_appointments(
             )
         """)
         .eq("practitioner_id", practitioner_id)
+        .eq("organization_id", organization_id)
         .order(
             "start_time",
             desc=True

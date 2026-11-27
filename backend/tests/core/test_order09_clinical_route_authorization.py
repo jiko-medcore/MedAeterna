@@ -731,3 +731,320 @@ def test_lab_and_reminder_projections_match_local_schema():
     ).read_text(encoding="utf-8")
     assert "reminder_date" in reminder_source
     assert "scheduled_at" not in reminder_source
+
+
+def _care_team_parent_context(care_team_id="ct-1", patient_id="patient-1", org="org-1"):
+    return {
+        "authorized_action": "update",
+        "authorized_resource": clinical.CARE_TEAM,
+        "authorized_resource_id": care_team_id,
+        "authorized_patient_id": patient_id,
+        "authorized_organization_id": org,
+        "authorized_user_id": "admin-1",
+    }
+
+
+class _CareTeamParticipantAdmin:
+    """Operation-aware local fake for parent/participant service-boundary tests."""
+
+    def __init__(self, participant=None):
+        self.participant = participant or {
+            "id": "participant-1",
+            "care_team_id": "ct-1",
+            "practitioner_id": "prac-1",
+        }
+        self.calls = []
+
+    def table(self, name):
+        admin = self
+
+        class Query:
+            def __init__(self):
+                self.operation = "select"
+                self.filters = {}
+                self.payload = None
+
+            def select(self, _columns="*"):
+                self.operation = "select"
+                return self
+
+            def insert(self, payload):
+                self.operation = "insert"
+                self.payload = payload
+                return self
+
+            def update(self, payload):
+                self.operation = "update"
+                self.payload = payload
+                return self
+
+            def eq(self, key, value):
+                self.filters[key] = value
+                return self
+
+            def execute(self):
+                admin.calls.append({
+                    "table": name,
+                    "operation": self.operation,
+                    "filters": dict(self.filters),
+                    "payload": self.payload,
+                })
+                if self.operation == "select":
+                    if name == "care_team_participants":
+                        row = admin.participant
+                        return SimpleNamespace(
+                            data=[row] if row and all(
+                                row.get(k) == v for k, v in self.filters.items()
+                            ) else []
+                        )
+                    return SimpleNamespace(data=[])
+                if self.operation == "insert":
+                    return SimpleNamespace(data=[{"id": "participant-new", **self.payload}])
+                return SimpleNamespace(data=[{"id": "participant-1", **self.payload}])
+
+        return Query()
+
+
+def test_add_care_team_participant_requires_parent_resource_context(monkeypatch):
+    admin = _CareTeamParticipantAdmin()
+    monkeypatch.setattr(care_team_service, "supabase_admin", admin)
+    payload = SimpleNamespace(
+        practitioner_id="prac-2",
+        role_code="nurse",
+        responsibility=None,
+        start_date=None,
+        end_date=None,
+        metadata=None,
+    )
+    # A patient/organization authorization without the parent resource binding
+    # is not sufficient to mutate a child participant collection.
+    context = {
+        "authorized_action": "update",
+        "authorized_resource": clinical.CARE_TEAM,
+        "authorized_patient_id": "patient-1",
+        "authorized_organization_id": "org-1",
+        "authorized_user_id": "admin-1",
+    }
+    with pytest.raises(HTTPException) as exc:
+        care_team_service.add_care_team_participant(
+            "ct-1", payload, authorized_context=context
+        )
+    assert exc.value.status_code == 403
+    assert admin.calls == []
+
+
+def test_add_care_team_participant_is_bound_to_authorized_parent(monkeypatch):
+    admin = _CareTeamParticipantAdmin()
+    monkeypatch.setattr(care_team_service, "supabase_admin", admin)
+    audited = []
+    monkeypatch.setattr(
+        care_team_service,
+        "audit_clinical_write",
+        lambda context, **kwargs: audited.append((context, kwargs)),
+    )
+    payload = SimpleNamespace(
+        practitioner_id="prac-2",
+        role_code="nurse",
+        responsibility=None,
+        start_date=None,
+        end_date=None,
+        metadata=None,
+    )
+    result = care_team_service.add_care_team_participant(
+        "ct-1", payload, authorized_context=_care_team_parent_context("ct-1")
+    )
+    assert result["id"] == "participant-new"
+    assert admin.calls[-1]["operation"] == "insert"
+    assert admin.calls[-1]["payload"]["care_team_id"] == "ct-1"
+    assert audited[0][0]["authorized_user_id"] == "admin-1"
+    assert audited[0][1] == {
+        "action": "add_participant",
+        "resource_type": "care_team",
+        "resource_id": "ct-1",
+    }
+
+
+def test_update_care_team_participant_rejects_participant_from_another_parent(monkeypatch):
+    admin = _CareTeamParticipantAdmin(
+        participant={"id": "participant-1", "care_team_id": "ct-other"}
+    )
+    monkeypatch.setattr(care_team_service, "supabase_admin", admin)
+    payload = SimpleNamespace(
+        model_dump=lambda **_kwargs: {"active": False},
+    )
+    with pytest.raises(HTTPException) as exc:
+        care_team_service.update_care_team_participant(
+            "participant-1", payload,
+            authorized_context=_care_team_parent_context("ct-1"),
+        )
+    assert exc.value.status_code == 403
+    assert not any(call["operation"] == "update" for call in admin.calls)
+
+
+def test_update_care_team_participant_update_is_constrained_by_parent(monkeypatch):
+    admin = _CareTeamParticipantAdmin()
+    monkeypatch.setattr(care_team_service, "supabase_admin", admin)
+    audited = []
+    monkeypatch.setattr(
+        care_team_service,
+        "audit_clinical_write",
+        lambda context, **kwargs: audited.append((context, kwargs)),
+    )
+    payload = SimpleNamespace(model_dump=lambda **_kwargs: {"active": False})
+    result = care_team_service.update_care_team_participant(
+        "participant-1", payload,
+        authorized_context=_care_team_parent_context("ct-1"),
+    )
+    assert result["id"] == "participant-1"
+    update_call = next(call for call in admin.calls if call["operation"] == "update")
+    assert update_call["filters"] == {
+        "id": "participant-1",
+        "care_team_id": "ct-1",
+    }
+    assert audited[0][0]["authorized_user_id"] == "admin-1"
+    assert audited[0][1] == {
+        "action": "update_participant",
+        "resource_type": "care_team_participant",
+        "resource_id": "participant-1",
+    }
+
+
+def _patient_actor(user_id=PATIENT_UUID):
+    return {
+        "id": user_id,
+        "roles": [{"category": PATIENT, "organization_id": None}],
+    }
+
+
+def test_patient_profile_read_is_classified_as_owner_only():
+    context = clinical.authorize_patient_profile_access(
+        _patient_actor(), action="read", patient_id=PATIENT_UUID
+    )
+    assert context["authorized_resource"] == "patient_profile"
+    assert context["authorized_action"] == "read"
+    assert context["authorized_patient_id"] == PATIENT_UUID
+    assert context["authorized_user_id"] == PATIENT_UUID
+
+
+def test_patient_profile_update_requires_verified_permitted_fields():
+    with pytest.raises(HTTPException) as exc:
+        clinical.authorize_patient_profile_access(
+            _patient_actor(), action="update", patient_id=PATIENT_UUID
+        )
+    assert exc.value.status_code == 403
+
+    context = clinical.authorize_patient_profile_access(
+        _patient_actor(),
+        action="update",
+        patient_id=PATIENT_UUID,
+        permitted_fields=True,
+    )
+    assert context["authorized_resource"] == "patient_profile"
+    assert context["authorized_action"] == "update"
+
+
+@pytest.mark.parametrize(
+    "actor,patient_id",
+    [
+        (_patient_actor("another-patient"), PATIENT_UUID),
+        (
+            {
+                "id": "practitioner-1",
+                "roles": [{"category": PRACTITIONER, "organization_id": "org-1"}],
+            },
+            PATIENT_UUID,
+        ),
+    ],
+)
+def test_patient_profile_self_access_rejects_non_owner_or_non_patient(actor, patient_id):
+    with pytest.raises(HTTPException):
+        clinical.authorize_patient_profile_access(
+            actor, action="read", patient_id=patient_id
+        )
+
+
+def test_patient_profile_service_requires_authorized_context_before_query(monkeypatch):
+    class NoQuery:
+        def table(self, _name):
+            raise AssertionError("database query must not run without authorization")
+
+    monkeypatch.setattr(patients_service, "supabase", NoQuery())
+    with pytest.raises(HTTPException) as exc:
+        patients_service.get_patient_profile(
+            PATIENT_UUID, authorized_context=None
+        )
+    assert exc.value.status_code == 403
+
+
+def test_patient_profile_route_ignores_legacy_is_patient_flag(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        patients_service,
+        "get_patient_profile",
+        lambda *args, **kwargs: called.append((args, kwargs)),
+    )
+    with pytest.raises(HTTPException):
+        patients_router.my_profile(
+            current_user={"id": PATIENT_UUID, "is_patient": True, "roles": []}
+        )
+    assert called == []
+
+
+def test_patient_profile_route_passes_owner_bound_context(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        patients_service,
+        "get_patient_profile",
+        lambda patient_id, **kwargs: captured.update(
+            patient_id=patient_id, context=kwargs["authorized_context"]
+        ) or {"id": patient_id},
+    )
+    result = patients_router.my_profile(current_user=_patient_actor())
+    assert result == {"id": PATIENT_UUID}
+    assert captured["patient_id"] == PATIENT_UUID
+    assert captured["context"]["authorized_resource"] == "patient_profile"
+    assert captured["context"]["authorized_user_id"] == PATIENT_UUID
+
+
+def test_patient_profile_update_service_rejects_unapproved_fields_before_query(monkeypatch):
+    class NoQuery:
+        def table(self, _name):
+            raise AssertionError("database query must not run for unapproved fields")
+
+    monkeypatch.setattr(patients_service, "supabase", NoQuery())
+    context = clinical.authorize_patient_profile_access(
+        _patient_actor(),
+        action="update",
+        patient_id=PATIENT_UUID,
+        permitted_fields=True,
+    )
+    with pytest.raises(HTTPException) as exc:
+        patients_service.update_patient_info(
+            PATIENT_UUID,
+            {"organization_id": "another-organization"},
+            authorized_context=context,
+        )
+    assert exc.value.status_code == 403
+
+
+def test_patient_profile_update_route_passes_allowlisted_payload_and_context(monkeypatch):
+    from app.modules.patients.schemas import PatientUpdate
+
+    captured = {}
+    monkeypatch.setattr(
+        patients_service,
+        "update_patient_info",
+        lambda patient_id, payload, **kwargs: captured.update(
+            patient_id=patient_id,
+            payload=payload,
+            context=kwargs["authorized_context"],
+        ) or {"id": patient_id},
+    )
+    result = patients_router.update_my_profile(
+        PatientUpdate.model_construct(first_name="Updated"),
+        current_user=_patient_actor(),
+    )
+    assert result == {"id": PATIENT_UUID}
+    assert captured["payload"] == {"first_name": "Updated"}
+    assert captured["context"]["authorized_resource"] == "patient_profile"
+    assert captured["context"]["authorized_action"] == "update"

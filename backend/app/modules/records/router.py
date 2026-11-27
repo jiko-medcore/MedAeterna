@@ -2,12 +2,12 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.security import (
-    authorize_patient_access,
-    authorize_permission,
-    get_current_user,
+from app.core.clinical_authorization import (
+    CLINICAL_RECORD,
+    authorize_clinical_access,
+    authorize_table_access,
 )
-from app.core.supabase_admin import supabase_admin
+from app.core.security import authorize_permission, get_current_user
 from app.modules.records.schemas import MedicalRecordCreate, MedicationInput
 from app.modules.records.service import create_record, resolve_condition_record
 from app.modules.terminology.constants import CODE_SYSTEMS
@@ -19,8 +19,12 @@ def _authorize_record_write(
     current_user: dict, patient_id: str, permission_name: str,
     resource_family: str, action: str = "create",
 ) -> dict:
-    authz = authorize_patient_access(
-        current_user, str(patient_id), resource_family=resource_family, action=action
+    authz = authorize_clinical_access(
+        current_user,
+        resource=CLINICAL_RECORD,
+        action=action,
+        patient_id=str(patient_id),
+        relationship_resource_family=resource_family,
     )
     org_id = authz.get("authorized_organization_id")
     if not org_id:
@@ -34,7 +38,7 @@ def create_observation(
     current_user: dict = Depends(get_current_user),
 ):
     current_user = _authorize_record_write(current_user, payload.patient_id, "create_observation", "observation")
-    return create_record(payload, clinician_id=current_user["id"])
+    return create_record(payload, authorized_context=current_user)
 
 
 @router.post("/conditions", status_code=201)
@@ -43,7 +47,7 @@ def create_condition(
     current_user: dict = Depends(get_current_user),
 ):
     current_user = _authorize_record_write(current_user, payload.patient_id, "create_condition", "condition")
-    return create_record(payload, clinician_id=current_user["id"])
+    return create_record(payload, authorized_context=current_user)
 
 
 @router.post("/medications", status_code=201)
@@ -76,7 +80,7 @@ def create_medication(
         record_type="medication",
         clinical_data=fhir_medication,
     )
-    return create_record(record, clinician_id=current_user["id"])
+    return create_record(record, authorized_context=current_user)
 
 
 @router.patch("/conditions/{record_id}/resolve")
@@ -84,22 +88,20 @@ def resolve_condition(
     record_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    rows = (
-        supabase_admin.table("medical_records")
-        .select("id, patient_id, record_type")
-        .eq("id", record_id)
-        .eq("record_type", "condition")
-        .limit(1)
-        .execute()
-        .data
-        or []
-    )
-    if not rows:
-        raise HTTPException(status_code=404, detail="Condition not found")
-    patient_id = str(rows[0]["patient_id"])
-    current_user = _authorize_record_write(current_user, patient_id, "resolve_condition", "condition", action="update")
-    return resolve_condition_record(
-        record_id,
+    context = authorize_table_access(
         current_user,
-        patient_id=patient_id,
+        "medical_records",
+        str(record_id),
+        "update",
+        relationship_resource_family="condition",
+    )
+    if context.get("resource_row", {}).get("record_type") != "condition":
+        raise HTTPException(status_code=404, detail="Condition not found")
+    organization_id = str(context.get("authorized_organization_id") or "")
+    if not organization_id:
+        raise HTTPException(status_code=403, detail="Organization context required")
+    context = authorize_permission(context, "resolve_condition", organization_id)
+    return resolve_condition_record(
+        str(record_id),
+        authorized_context=context,
     )

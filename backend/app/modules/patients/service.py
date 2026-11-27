@@ -1,6 +1,11 @@
 from fastapi import HTTPException
 
-from app.core.clinical_authorization import PATIENT_LIST, ensure_authorized_context
+from app.core.clinical_authorization import (
+    CLINICAL_RECORD,
+    PATIENT_LIST,
+    PATIENT_PROFILE,
+    ensure_authorized_context,
+)
 from app.core.patient_avatar_access import (
     is_patient_avatar_object_path,
     with_private_avatar_url,
@@ -39,6 +44,22 @@ PATIENT_EXPORT_SELECT = "id, fhir_metadata"
 PATIENT_SUMMARY_SELECT = "id, first_name, last_name, gender, date_of_birth"
 PATIENT_RECORD_SUMMARY_SELECT = "id, created_at, record_type, clinical_data"
 PATIENT_TIMELINE_SELECT = "id, created_at, record_type, clinical_data"
+PATIENT_PROFILE_UPDATE_FIELDS = frozenset({
+    "first_name",
+    "last_name",
+    "middle_name",
+    "date_of_birth",
+    "gender",
+    "blood_group",
+    "marital_status",
+    "phone",
+    "email",
+    "address",
+    "emergency_contact_name",
+    "emergency_contact_phone",
+})
+
+
 PATIENT_LIST_SELECT = (
     "id, medical_id, first_name, last_name, date_of_birth, gender, "
     "profile_image_path, profile_image_url"
@@ -46,14 +67,15 @@ PATIENT_LIST_SELECT = (
 
 
 # ----- Get Patient Summary -----
-def get_patient_summary(patient_id: str) -> Dict[str, Any]:
-    """
-    Generate a summary of the patient's health data including 
-    vitals, conditions, and medications.  
+def get_patient_summary(patient_id: str, *, authorized_context: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate a summary of the authorized patient's health data."""
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
 
-    input: patient_id (str) - unique identifier for the patient
-    return: dict - summary of patient's health data
-    """
     # ---- Fetch patient ----
     patient_resp = (
         supabase
@@ -263,7 +285,13 @@ def get_or_create_patient(
 
 
 # ----- Get Patient with Records -----
-def get_patient_with_records(patient_id: str):
+def get_patient_with_records(patient_id: str, *, authorized_context: Dict[str, Any]):
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
     patient = (
         supabase
         .table("patients")
@@ -286,13 +314,14 @@ def get_patient_with_records(patient_id: str):
 
 
 # ----- Transform Record to Timeline Event -----
-def build_patient_timeline(patient_id: UUID):
-    """
-    Build a chronological timeline of a patient's medical events.
-    
-    input: patient_id (UUID) - unique identifier for the patient
-    return: dict - timeline of medical events
-    """
+def build_patient_timeline(patient_id: UUID, *, authorized_context: Dict[str, Any]):
+    """Build a chronological timeline of the authorized patient's medical events."""
+    ensure_authorized_context(
+        authorized_context,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
     response = (
         supabase
         .table("medical_records")
@@ -415,7 +444,15 @@ def get_my_patients(*, authorized_context: Dict[str, Any]):
 
 
 # ---- Get Patient Profile ----
-def get_patient_profile(patient_id: str) -> Dict[str, Any]:
+def get_patient_profile(
+    patient_id: str, *, authorized_context: Dict[str, Any]
+) -> Dict[str, Any]:
+    ensure_authorized_context(
+        authorized_context,
+        resource=PATIENT_PROFILE,
+        action="read",
+        patient_id=str(patient_id),
+    )
     response = (
         supabase
         .table("patients")
@@ -450,7 +487,26 @@ def get_patient_profile(patient_id: str) -> Dict[str, Any]:
 
 
 # ---- Update Patient Info ----
-def update_patient_info(patient_id: str, payload: dict):
+def update_patient_info(
+    patient_id: str,
+    payload: dict,
+    *,
+    authorized_context: Dict[str, Any],
+):
+    ensure_authorized_context(
+        authorized_context,
+        resource=PATIENT_PROFILE,
+        action="update",
+        patient_id=str(patient_id),
+    )
+    if (
+        not payload
+        or not set(payload).issubset(PATIENT_PROFILE_UPDATE_FIELDS)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Patient profile fields are not permitted",
+        )
     response = (
         supabase
         .table("patients")
@@ -468,8 +524,19 @@ def update_patient_info(patient_id: str, payload: dict):
 
 
 # ---- Update Patient Profile Image ----
-def update_profile_image_path(patient_id: str, object_path: str) -> Dict[str, Any]:
+def update_profile_image_path(
+    patient_id: str,
+    object_path: str,
+    *,
+    authorized_context: Dict[str, Any],
+) -> Dict[str, Any]:
     """Persist only the stable private object path, never a signed URL."""
+    ensure_authorized_context(
+        authorized_context,
+        resource=PATIENT_PROFILE,
+        action="update",
+        patient_id=str(patient_id),
+    )
     if not is_patient_avatar_object_path(object_path, patient_id):
         raise PatientUpdateError("Invalid patient avatar object path")
 
@@ -494,8 +561,15 @@ def update_profile_image_path(patient_id: str, object_path: str) -> Dict[str, An
 
 
 # ----- Get Patient Medical ID -----
-def get_patient_medical_id(patient_id: str) -> str:
-
+def get_patient_medical_id(
+    patient_id: str, *, authorized_context: Dict[str, Any]
+) -> str:
+    ensure_authorized_context(
+        authorized_context,
+        resource=PATIENT_PROFILE,
+        action="read",
+        patient_id=str(patient_id),
+    )
     response = (
         supabase_admin
         .table("patients")

@@ -47,6 +47,7 @@ def test_patients_me_returns_signed_url_and_hides_stored_path(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     path = f"{patient_id}/avatar.png"
     _, bucket = _mock_storage(mocker)
@@ -75,6 +76,7 @@ def test_patient_profile_me_returns_signed_url_and_hides_stored_path(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     path = f"{patient_id}/avatar.webp"
     _, bucket = _mock_storage(mocker)
@@ -103,6 +105,7 @@ def test_user_summary_returns_signed_avatar_url_under_existing_field(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     path = f"{patient_id}/avatar.jpg"
     _, bucket = _mock_storage(mocker)
@@ -120,6 +123,18 @@ def test_user_summary_returns_signed_avatar_url_under_existing_field(
     )
     mocker.patch.object(dashboard_service, "get_active_prescriptions", return_value=[])
     mocker.patch.object(dashboard_service, "get_upcoming_reminders", return_value=[])
+    from app.modules.dashboard import router as dashboard_router
+    mocker.patch.object(
+        dashboard_router,
+        "authorize_patient_self_read",
+        side_effect=lambda user, *, resource, patient_id: {
+            **user,
+            "authorized_action": "read",
+            "authorized_resource": resource,
+            "authorized_user_id": patient_id,
+            "authorized_patient_id": patient_id,
+        },
+    )
 
     response = authenticated_client.get("/api/v1/user/summary")
 
@@ -187,6 +202,7 @@ def test_patient_read_fails_closed_when_signing_fails(
     authenticated_client, current_user, mocker, route
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     _, bucket = _mock_storage(mocker, signed_url="")
     bucket.create_signed_url.return_value = {}
@@ -211,6 +227,7 @@ def test_legacy_public_url_is_signed_without_legacy_path_column(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     path = f"{patient_id}/avatar.png"
     legacy_url = (
@@ -240,6 +257,7 @@ def test_unknown_legacy_value_is_not_returned_as_avatar_url(
     authenticated_client, current_user, mocker
 ):
     current_user["is_patient"] = True
+    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     _, bucket = _mock_storage(mocker)
     _mock_select(

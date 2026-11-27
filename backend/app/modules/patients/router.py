@@ -4,7 +4,12 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from app.core.clinical_authorization import authorize_patient_list_access
+from app.core.clinical_authorization import (
+    CLINICAL_RECORD,
+    authorize_clinical_access,
+    authorize_patient_list_access,
+    authorize_patient_profile_access,
+)
 from app.core.patient_avatar_access import (
     create_signed_patient_avatar_url,
     is_patient_avatar_object_path,
@@ -26,6 +31,7 @@ from app.modules.patients.service import (
     get_patient_profile,
     get_patient_summary,
     get_patient_with_records,
+    PATIENT_PROFILE_UPDATE_FIELDS,
     update_patient_info,
     update_profile_image_path,
 )
@@ -40,9 +46,16 @@ router = APIRouter(prefix="/patients", tags=["Patients"])
 
 @router.get("/medical-id")
 def get_medical_id(current_user: dict = Depends(get_current_user)):
-    if not current_user.get("is_patient"):
-        raise HTTPException(status_code=403, detail="Only patients allowed")
-    return {"medical_id": get_patient_medical_id(current_user["id"])}
+    context = authorize_patient_profile_access(
+        current_user,
+        action="read",
+        patient_id=str(current_user.get("id") or ""),
+    )
+    return {
+        "medical_id": get_patient_medical_id(
+            str(current_user["id"]), authorized_context=context
+        )
+    }
 
 
 @router.get("/me", response_model=Patient)
@@ -65,9 +78,14 @@ def get_create_patient(
 
 @router.get("/profile/me")
 def my_profile(current_user: dict = Depends(get_current_user)):
-    if not current_user.get("is_patient"):
-        raise HTTPException(status_code=403, detail="Only patients allowed")
-    return get_patient_profile(current_user["id"])
+    context = authorize_patient_profile_access(
+        current_user,
+        action="read",
+        patient_id=str(current_user.get("id") or ""),
+    )
+    return get_patient_profile(
+        str(current_user["id"]), authorized_context=context
+    )
 
 
 @router.get("/mine")
@@ -85,9 +103,20 @@ def update_my_profile(
     payload: PatientUpdate,
     current_user: dict = Depends(get_current_user),
 ):
-    if not current_user.get("is_patient"):
-        raise HTTPException(status_code=403, detail="Only patients allowed")
-    return update_patient_info(current_user["id"], payload.model_dump(exclude_unset=True))
+    update_data = payload.model_dump(exclude_unset=True)
+    context = authorize_patient_profile_access(
+        current_user,
+        action="update",
+        patient_id=str(current_user.get("id") or ""),
+        permitted_fields=bool(update_data) and set(update_data).issubset(
+            PATIENT_PROFILE_UPDATE_FIELDS
+        ),
+    )
+    return update_patient_info(
+        str(current_user["id"]),
+        update_data,
+        authorized_context=context,
+    )
 
 
 @router.get("/{patient_id}/fhir")
@@ -95,8 +124,16 @@ def patient_fhir(
     patient_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    authorize_patient_access(current_user, str(patient_id))
-    patient, records = get_patient_with_records(str(patient_id))
+    context = authorize_clinical_access(
+        current_user,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
+    patient, records = get_patient_with_records(
+        str(patient_id),
+        authorized_context=context,
+    )
     return build_patient_bundle(patient, records)
 
 
@@ -117,8 +154,13 @@ def patient_summary(
     current_user: dict = Depends(get_current_user),
 ):
     # Derive organization scope from the target patient and fail closed.
-    authorize_patient_access(current_user, str(patient_id))
-    return get_patient_summary(str(patient_id))
+    context = authorize_clinical_access(
+        current_user,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
+    return get_patient_summary(str(patient_id), authorized_context=context)
 
 
 @router.get("/{patient_id}/timeline")
@@ -126,8 +168,13 @@ def get_patient_timeline(
     patient_id: UUID,
     current_user: dict = Depends(get_current_user),
 ):
-    authorize_patient_access(current_user, str(patient_id))
-    return build_patient_timeline(patient_id)
+    context = authorize_clinical_access(
+        current_user,
+        resource=CLINICAL_RECORD,
+        action="read",
+        patient_id=str(patient_id),
+    )
+    return build_patient_timeline(patient_id, authorized_context=context)
 
 
 @router.post("/{patient_id}/assign")
@@ -153,8 +200,12 @@ async def upload_profile_picture(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
-    if not current_user.get("is_patient"):
-        raise HTTPException(status_code=403, detail="Only patients allowed")
+    context = authorize_patient_profile_access(
+        current_user,
+        action="update",
+        patient_id=str(current_user.get("id") or ""),
+        permitted_fields=True,
+    )
 
     file_bytes = await file.read()
     try:
@@ -187,7 +238,11 @@ async def upload_profile_picture(
             patient_id=str(current_user["id"]),
             object_path=file_path,
         )
-        update_profile_image_path(str(current_user["id"]), file_path)
+        update_profile_image_path(
+            str(current_user["id"]),
+            file_path,
+            authorized_context=context,
+        )
         return {
             "message": "Profile image uploaded successfully",
             "profile_image_url": signed_url,
