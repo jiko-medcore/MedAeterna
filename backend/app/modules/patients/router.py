@@ -31,6 +31,7 @@ from app.modules.patients.service import (
     get_patient_profile,
     get_patient_summary,
     get_patient_with_records,
+    PATIENT_PROFILE_UPDATE_FIELDS,
     update_patient_info,
     update_profile_image_path,
 )
@@ -107,7 +108,9 @@ def update_my_profile(
         current_user,
         action="update",
         patient_id=str(current_user.get("id") or ""),
-        permitted_fields=bool(update_data),
+        permitted_fields=bool(update_data) and set(update_data).issubset(
+            PATIENT_PROFILE_UPDATE_FIELDS
+        ),
     )
     return update_patient_info(
         str(current_user["id"]),
