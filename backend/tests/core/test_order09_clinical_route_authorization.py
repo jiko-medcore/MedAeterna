@@ -1004,3 +1004,47 @@ def test_patient_profile_route_passes_owner_bound_context(monkeypatch):
     assert captured["patient_id"] == PATIENT_UUID
     assert captured["context"]["authorized_resource"] == "patient_profile"
     assert captured["context"]["authorized_user_id"] == PATIENT_UUID
+
+
+def test_patient_profile_update_service_rejects_unapproved_fields_before_query(monkeypatch):
+    class NoQuery:
+        def table(self, _name):
+            raise AssertionError("database query must not run for unapproved fields")
+
+    monkeypatch.setattr(patients_service, "supabase", NoQuery())
+    context = clinical.authorize_patient_profile_access(
+        _patient_actor(),
+        action="update",
+        patient_id=PATIENT_UUID,
+        permitted_fields=True,
+    )
+    with pytest.raises(HTTPException) as exc:
+        patients_service.update_patient_info(
+            PATIENT_UUID,
+            {"organization_id": "another-organization"},
+            authorized_context=context,
+        )
+    assert exc.value.status_code == 403
+
+
+def test_patient_profile_update_route_passes_allowlisted_payload_and_context(monkeypatch):
+    from app.modules.patients.schemas import PatientUpdate
+
+    captured = {}
+    monkeypatch.setattr(
+        patients_service,
+        "update_patient_info",
+        lambda patient_id, payload, **kwargs: captured.update(
+            patient_id=patient_id,
+            payload=payload,
+            context=kwargs["authorized_context"],
+        ) or {"id": patient_id},
+    )
+    result = patients_router.update_my_profile(
+        PatientUpdate(first_name="Updated"),
+        current_user=_patient_actor(),
+    )
+    assert result == {"id": PATIENT_UUID}
+    assert captured["payload"] == {"first_name": "Updated"}
+    assert captured["context"]["authorized_resource"] == "patient_profile"
+    assert captured["context"]["authorized_action"] == "update"
