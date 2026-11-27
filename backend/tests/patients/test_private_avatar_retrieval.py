@@ -106,7 +106,6 @@ def test_user_summary_returns_signed_avatar_url_under_existing_field(
 ):
     current_user["is_patient"] = True
     current_user["roles"] = [{"category": "patient", "organization_id": None}]
-    current_user["roles"] = [{"category": "patient", "organization_id": None}]
     patient_id = str(current_user["id"])
     path = f"{patient_id}/avatar.jpg"
     _, bucket = _mock_storage(mocker)
