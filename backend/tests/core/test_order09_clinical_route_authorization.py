@@ -907,3 +907,68 @@ def test_update_care_team_participant_update_is_constrained_by_parent(monkeypatc
         "resource_type": "care_team_participant",
         "resource_id": "participant-1",
     }
+
+
+def _patient_actor(user_id=PATIENT_UUID):
+    return {
+        "id": user_id,
+        "roles": [{"category": PATIENT, "organization_id": None}],
+    }
+
+
+def test_patient_profile_read_is_classified_as_owner_only():
+    context = clinical.authorize_patient_profile_access(
+        _patient_actor(), action="read", patient_id=PATIENT_UUID
+    )
+    assert context["authorized_resource"] == "patient_profile"
+    assert context["authorized_action"] == "read"
+    assert context["authorized_patient_id"] == PATIENT_UUID
+    assert context["authorized_user_id"] == PATIENT_UUID
+
+
+def test_patient_profile_update_requires_verified_permitted_fields():
+    with pytest.raises(HTTPException) as exc:
+        clinical.authorize_patient_profile_access(
+            _patient_actor(), action="update", patient_id=PATIENT_UUID
+        )
+    assert exc.value.status_code == 403
+
+    context = clinical.authorize_patient_profile_access(
+        _patient_actor(),
+        action="update",
+        patient_id=PATIENT_UUID,
+        permitted_fields=True,
+    )
+    assert context["authorized_resource"] == "patient_profile"
+    assert context["authorized_action"] == "update"
+
+
+@pytest.mark.parametrize(
+    "actor,patient_id",
+    [
+        (_patient_actor("another-patient"), PATIENT_UUID),
+        (
+            {
+                "id": "practitioner-1",
+                "roles": [{"category": PRACTITIONER, "organization_id": "org-1"}],
+            },
+            PATIENT_UUID,
+        ),
+    ],
+)
+def test_patient_profile_self_access_rejects_non_owner_or_non_patient(actor, patient_id):
+    with pytest.raises(HTTPException):
+        clinical.authorize_patient_profile_access(
+            actor, action="read", patient_id=patient_id
+        )
+
+
+def test_patient_profile_service_requires_authorized_context_before_query(monkeypatch):
+    class NoQuery:
+        def table(self, _name):
+            raise AssertionError("database query must not run without authorization")
+
+    monkeypatch.setattr(patients_service, "supabase", NoQuery())
+    with pytest.raises(HTTPException) as exc:
+        patients_service.get_patient_profile(PATIENT_UUID)
+    assert exc.value.status_code == 403
