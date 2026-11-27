@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock
 
 from app.core import patient_avatar_access as patient_avatar_access_module
 from app.core.patient_avatar_access import PATIENT_AVATAR_URL_TTL_SECONDS
@@ -47,7 +47,7 @@ def test_patient_avatar_upload_uses_service_role_owner_path_and_signed_url(
     )
     bucket.get_public_url.assert_not_called()
     update_image.assert_called_once_with(
-        patient_id, file_path, authorized_context=mocker.ANY
+        patient_id, file_path, authorized_context=ANY
     )
     assert response.json() == {
         "message": "Profile image uploaded successfully",
